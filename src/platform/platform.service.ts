@@ -268,7 +268,6 @@ export class PlatformService {
     );
     const [organizations, requests] = await Promise.all([
       this.prisma.organization.findMany({
-        where: { users: { some: { role: { not: UserRole.SUPER_ADMIN } } } },
         select: {
           id: true,
           name: true,
