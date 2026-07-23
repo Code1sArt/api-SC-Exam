@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  ForbiddenException,
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -322,6 +323,7 @@ ${JSON.stringify(input)}
     input: object,
     prompt: string,
   ): Promise<GeneratedQuestion[]> {
+    await this.assertWithinMonthlyTokenBudget(context.organizationId);
     const model = (await this.getModels(context.organizationId)).generation;
     if (this.isMockMode()) {
       const typedInput = input as {
@@ -430,6 +432,7 @@ ${JSON.stringify(input)}
     prompt: string,
     model: string,
   ): Promise<T> {
+    await this.assertWithinMonthlyTokenBudget(context.organizationId);
     if (this.isMockMode()) {
       const output = this.mockGemini(task, input) as T;
       await this.logMock(context, task, model, input, output);
@@ -500,6 +503,47 @@ ${JSON.stringify(input)}
         organization.aiReportModel ||
         this.config.get<string>('AI_REPORT_MODEL', 'gemini-3.1-flash-lite'),
     };
+  }
+
+  private async assertWithinMonthlyTokenBudget(organizationId: string) {
+    const now = new Date();
+    const periodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+    const periodEnd = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+    );
+    const [organization, requests] = await Promise.all([
+      this.prisma.organization.findUniqueOrThrow({
+        where: { id: organizationId },
+        select: { aiMonthlyTokenBudget: true },
+      }),
+      this.prisma.aiRequest.findMany({
+        where: {
+          organizationId,
+          createdAt: { gte: periodStart, lt: periodEnd },
+        },
+        select: { tokenUsage: true },
+      }),
+    ]);
+    const usedTokens = requests.reduce((total, request) => {
+      const value = request.tokenUsage;
+      const usage =
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? (value as Record<string, Prisma.JsonValue>)
+          : {};
+      const inputTokens = Number(usage.inputTokens ?? 0) || 0;
+      const outputTokens = Number(usage.outputTokens ?? 0) || 0;
+      return (
+        total + (Number(usage.totalTokens ?? 0) || inputTokens + outputTokens)
+      );
+    }, 0);
+
+    if (organization.aiMonthlyTokenBudget <= usedTokens) {
+      throw new ForbiddenException(
+        'โควตา Token สำหรับ AI ขององค์กรหมดแล้ว กรุณาติดต่อผู้ดูแลระบบ',
+      );
+    }
   }
 
   private async isGeminiModelAvailable(model: string, apiKey: string) {
