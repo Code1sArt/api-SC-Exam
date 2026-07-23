@@ -8,6 +8,13 @@
   "engines": {
     "node": ">=22 <25"
   },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "@scarf/scarf": false,
+    "bcrypt@6.0.0": true,
+    "prisma@6.19.3": true
+  },
   "scripts": {
     "build": "nest build",
     "db:generate": "prisma generate",

@@ -80,7 +80,8 @@ administrator before the first deployment.
 ## 4. Enable and run the first deployment
 
 After the public key, `.env`, and Plesk Node.js settings are ready, open
-**Settings > Environments > production > Environment variables** and create:
+**Settings > Secrets and variables > Actions > Variables** and create a
+repository variable:
 
 ```text
 PLESK_DEPLOY_ENABLED=true

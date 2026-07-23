@@ -47,7 +47,7 @@ export PATH="$NODE_BIN_DIR:$PATH"
 export NODE_ENV=production
 
 cd "$RELEASE_DIR"
-npm ci
+npm ci --include=dev
 npm run db:generate
 npm run build
 npm run db:deploy
@@ -55,6 +55,9 @@ npm prune --omit=dev
 
 rsync -a --delete \
   --exclude='.env' \
+  --exclude='.node-version' \
+  --exclude='.php-ini' \
+  --exclude='.php-version' \
   --exclude='.releases/' \
   --exclude='tmp/' \
   "$RELEASE_DIR/" "$APP_ROOT/"
