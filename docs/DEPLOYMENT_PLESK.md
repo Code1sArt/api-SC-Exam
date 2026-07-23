@@ -4,7 +4,7 @@ The `main` branch is verified and deployed to:
 
 - Host: `118.27.146.122`
 - SSH user: `admin_lebedu`
-- Application root: `/var/www/vhosts/labedu.tech/httpdocs/api.labedu.tech`
+- Application root: `/var/www/vhosts/labedu.tech/api.labedu.tech`
 - URL: `https://api.labedu.tech`
 
 ## 1. Configure the Plesk Node.js application
@@ -13,14 +13,14 @@ In **Websites & Domains > api.labedu.tech > Node.js**, use:
 
 | Setting | Value |
 |---|---|
-| Node.js version | 22 |
+| Node.js version | 24 |
 | Package manager | npm |
 | Document root | `public` |
 | Application mode | Production |
-| Application root | `/var/www/vhosts/labedu.tech/httpdocs/api.labedu.tech` |
+| Application root | `/var/www/vhosts/labedu.tech/api.labedu.tech` |
 | Application startup file | `app.js` |
 
-The Node.js Toolkit must be installed and Node.js 22 must be enabled on the
+The Node.js Toolkit must be installed and Node.js 24 must be enabled on the
 server. Enable the application after the first successful deployment.
 
 ## 2. Create the production environment file
@@ -28,7 +28,7 @@ server. Enable the application after the first successful deployment.
 Create this file on the server:
 
 ```text
-/var/www/vhosts/labedu.tech/httpdocs/api.labedu.tech/.env
+/var/www/vhosts/labedu.tech/api.labedu.tech/.env
 ```
 
 Start from `.env.example` and set at least:
@@ -45,7 +45,7 @@ Use the actual frontend origins, separated by commas. Change `AI_MOCK_MODE` to
 `false` only after adding the AI credentials. Restrict the file to the SSH user:
 
 ```bash
-chmod 600 /var/www/vhosts/labedu.tech/httpdocs/api.labedu.tech/.env
+chmod 600 /var/www/vhosts/labedu.tech/api.labedu.tech/.env
 ```
 
 The deployment runs `prisma migrate deploy`; do not run `prisma migrate dev` on
@@ -103,7 +103,7 @@ or manual rollback.
 
 - `Permission denied (publickey)`: add the generated public key for
   `admin_lebedu`.
-- `Node.js was not found`: enable Node.js 22 in Plesk or update
+- `Node.js was not found`: enable Node.js 24 in Plesk or update
   `PLESK_NODE_BIN_DIR` in `.github/workflows/ci-cd.yml`.
 - `Create .../.env before the first deployment`: create the production `.env`.
 - Health check fails: open **Websites & Domains > api.labedu.tech > Logs** and

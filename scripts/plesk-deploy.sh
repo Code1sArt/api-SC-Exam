@@ -6,13 +6,10 @@ ARCHIVE_PATH="${2:?Archive path is required}"
 NODE_BIN_DIR="${3:?Node binary directory is required}"
 RELEASE_ID="${4:?Release ID is required}"
 
-case "$APP_ROOT" in
-  /var/www/vhosts/*/httpdocs/*) ;;
-  *)
-    echo "Refusing unsafe application root: $APP_ROOT" >&2
-    exit 1
-    ;;
-esac
+if [[ ! "$APP_ROOT" =~ ^/var/www/vhosts/[A-Za-z0-9.-]+/[A-Za-z0-9.-]+$ ]]; then
+  echo "Refusing unsafe application root: $APP_ROOT" >&2
+  exit 1
+fi
 
 if [[ ! "$RELEASE_ID" =~ ^[0-9a-f]{40}-[0-9]+$ ]]; then
   echo "Invalid release ID: $RELEASE_ID" >&2
