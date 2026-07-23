@@ -1,0 +1,461 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  ESSAY
+  FILL_IN_BLANK
+}
+
+enum QuestionSource {
+  MANUAL
+  AI_GENERATED
+  AI_REMEDIAL
+}
+
+enum Difficulty {
+  VERY_EASY
+  EASY
+  MEDIUM
+  HARD
+  VERY_HARD
+}
+
+enum ExamStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+  ARCHIVED
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  GRADED
+}
+
+enum AiTask {
+  GENERATE_QUESTIONS
+  GRADE_ANSWER
+  GRADE_CODE
+  EXPLAIN_ANSWER
+  GENERATE_REMEDIAL
+  GENERATE_REPORT
+}
+
+enum AiStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum AssignmentStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum AssignmentType {
+  GENERAL
+  CODE
+}
+
+enum CodeLanguage {
+  C
+  CPP
+  CSHARP
+  PYTHON
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  GRADED
+}
+
+enum GroupGradingMode {
+  SHARED
+  INDIVIDUAL
+}
+
+model Organization {
+  id                   String           @id @default(cuid())
+  name                 String
+  code                 String           @unique
+  isActive             Boolean          @default(true)
+  aiGenerationModel    String?
+  aiReasoningModel     String?
+  aiReportModel        String?
+  studentAiEnabled     Boolean          @default(true)
+  aiMonthlyTokenBudget Int              @default(1000000)
+  users                User[]
+  studentProfiles      StudentProfile[]
+  classrooms           Classroom[]
+  subjects             Subject[]
+  indicators           Indicator[]
+  questions            Question[]
+  exams                Exam[]
+  assignments          Assignment[]
+  gradeScales          GradeScale[]
+  aiRequests           AiRequest[]
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+}
+
+model User {
+  id                 String                 @id @default(cuid())
+  organizationId     String
+  email              String                 @unique
+  passwordHash       String
+  firstName          String
+  lastName           String
+  role               UserRole
+  isActive           Boolean                @default(true)
+  organization       Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  studentProfile     StudentProfile?
+  taughtClasses      Classroom[]            @relation("ClassTeacher")
+  createdExams       Exam[]                 @relation("ExamCreator")
+  createdQuestions   Question[]             @relation("QuestionCreator")
+  createdAssignments Assignment[]           @relation("AssignmentCreator")
+  gradedSubmissions  AssignmentSubmission[] @relation("SubmissionGrader")
+  aiRequests         AiRequest[]
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@index([organizationId, role])
+}
+
+model StudentProfile {
+  id                         String                       @id @default(cuid())
+  organizationId             String
+  userId                     String                       @unique
+  studentCode                String
+  gradeLevel                 String?
+  organization               Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                       User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollments                Enrollment[]
+  attempts                   ExamAttempt[]
+  mastery                    StudentMastery[]
+  assignmentSubmissions      AssignmentSubmission[]
+  assignmentGroupMemberships AssignmentSubmissionMember[]
+  createdAt                  DateTime                     @default(now())
+  updatedAt                  DateTime                     @updatedAt
+
+  @@unique([organizationId, studentCode])
+}
+
+model Classroom {
+  id             String       @id @default(cuid())
+  organizationId String
+  teacherId      String
+  name           String
+  gradeLevel     String?
+  academicYear   String
+  isActive       Boolean      @default(true)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teacher        User         @relation("ClassTeacher", fields: [teacherId], references: [id])
+  enrollments    Enrollment[]
+  exams          Exam[]
+  assignments    Assignment[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, name, academicYear])
+  @@index([teacherId])
+}
+
+model Enrollment {
+  id          String         @id @default(cuid())
+  classroomId String
+  studentId   String
+  classroom   Classroom      @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  enrolledAt  DateTime       @default(now())
+
+  @@unique([classroomId, studentId])
+  @@index([studentId])
+}
+
+model Subject {
+  id             String       @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  indicators     Indicator[]
+  questions      Question[]
+  exams          Exam[]
+  assignments    Assignment[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, code])
+}
+
+model Indicator {
+  id             String           @id @default(cuid())
+  organizationId String
+  subjectId      String
+  code           String
+  description    String           @db.Text
+  gradeLevel     String?
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subject        Subject          @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  questions      Question[]
+  mastery        StudentMastery[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([organizationId, code])
+  @@index([subjectId])
+}
+
+model Question {
+  id                String          @id @default(cuid())
+  organizationId    String
+  subjectId         String
+  indicatorId       String?
+  createdById       String
+  parentQuestionId  String?
+  type              QuestionType
+  source            QuestionSource  @default(MANUAL)
+  difficulty        Difficulty      @default(MEDIUM)
+  prompt            String          @db.Text
+  options           Json?
+  answerKey         Json
+  explanation       String?         @db.Text
+  maxScore          Decimal         @default(1) @db.Decimal(8, 2)
+  tags              Json?
+  isActive          Boolean         @default(true)
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subject           Subject         @relation(fields: [subjectId], references: [id])
+  indicator         Indicator?      @relation(fields: [indicatorId], references: [id], onDelete: SetNull)
+  createdBy         User            @relation("QuestionCreator", fields: [createdById], references: [id])
+  parentQuestion    Question?       @relation("RemedialQuestions", fields: [parentQuestionId], references: [id], onDelete: SetNull)
+  remedialQuestions Question[]      @relation("RemedialQuestions")
+  examItems         ExamItem[]
+  answers           AttemptAnswer[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([organizationId, subjectId, type, difficulty])
+  @@index([indicatorId])
+}
+
+model Exam {
+  id              String        @id @default(cuid())
+  organizationId  String
+  classroomId     String
+  subjectId       String
+  createdById     String
+  title           String
+  description     String?       @db.Text
+  status          ExamStatus    @default(DRAFT)
+  isAdaptive      Boolean       @default(false)
+  durationMinutes Int?
+  availableFrom   DateTime?
+  availableUntil  DateTime?
+  maxAttempts     Int           @default(1)
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  classroom       Classroom     @relation(fields: [classroomId], references: [id])
+  subject         Subject       @relation(fields: [subjectId], references: [id])
+  createdBy       User          @relation("ExamCreator", fields: [createdById], references: [id])
+  items           ExamItem[]
+  attempts        ExamAttempt[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([organizationId, status])
+  @@index([classroomId])
+}
+
+model ExamItem {
+  id         String   @id @default(cuid())
+  examId     String
+  questionId String
+  position   Int
+  score      Decimal  @db.Decimal(8, 2)
+  exam       Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question   Question @relation(fields: [questionId], references: [id])
+
+  @@unique([examId, position])
+  @@unique([examId, questionId])
+}
+
+model Assignment {
+  id               String                 @id @default(cuid())
+  organizationId   String
+  classroomId      String
+  subjectId        String
+  createdById      String
+  title            String
+  description      String                 @db.Text
+  maxScore         Decimal                @db.Decimal(8, 2)
+  dueAt            DateTime
+  status           AssignmentStatus       @default(DRAFT)
+  type             AssignmentType         @default(GENERAL)
+  codeLanguage     CodeLanguage?
+  aiGradingEnabled Boolean                @default(false)
+  aiGradingModel   String?
+  isGroupWork      Boolean                @default(false)
+  minGroupSize     Int                    @default(1)
+  maxGroupSize     Int                    @default(5)
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  classroom        Classroom              @relation(fields: [classroomId], references: [id])
+  subject          Subject                @relation(fields: [subjectId], references: [id])
+  createdBy        User                   @relation("AssignmentCreator", fields: [createdById], references: [id])
+  submissions      AssignmentSubmission[]
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  @@index([organizationId, status, dueAt])
+  @@index([classroomId])
+}
+
+model AssignmentSubmission {
+  id             String                       @id @default(cuid())
+  assignmentId   String
+  studentId      String
+  content        String?                      @db.Text
+  attachmentUrl  String?                      @db.Text
+  attachmentUrls Json?
+  status         SubmissionStatus             @default(SUBMITTED)
+  score          Decimal?                     @db.Decimal(8, 2)
+  feedback       String?                      @db.Text
+  submittedAt    DateTime                     @default(now())
+  gradedAt       DateTime?
+  gradedById     String?
+  groupName      String?
+  gradingMode    GroupGradingMode?
+  assignment     Assignment                   @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student        StudentProfile               @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  gradedBy       User?                        @relation("SubmissionGrader", fields: [gradedById], references: [id], onDelete: SetNull)
+  members        AssignmentSubmissionMember[]
+
+  @@unique([assignmentId, studentId])
+  @@index([studentId, status])
+}
+
+model AssignmentSubmissionMember {
+  id           String               @id @default(cuid())
+  assignmentId String
+  submissionId String
+  studentId    String
+  role         String
+  score        Decimal?             @db.Decimal(8, 2)
+  feedback     String?              @db.Text
+  submission   AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  student      StudentProfile       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@unique([assignmentId, studentId])
+  @@index([submissionId])
+}
+
+model GradeScale {
+  id             String       @id @default(cuid())
+  organizationId String
+  grade          String
+  minPercentage  Decimal      @db.Decimal(5, 2)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, grade])
+}
+
+model ExamAttempt {
+  id                String          @id @default(cuid())
+  examId            String
+  studentId         String
+  attemptNumber     Int
+  status            AttemptStatus   @default(IN_PROGRESS)
+  currentDifficulty Difficulty      @default(MEDIUM)
+  correctStreak     Int             @default(0)
+  incorrectStreak   Int             @default(0)
+  score             Decimal?        @db.Decimal(10, 2)
+  maxScore          Decimal?        @db.Decimal(10, 2)
+  percentage        Decimal?        @db.Decimal(5, 2)
+  aiReport          Json?
+  lockedAt          DateTime?
+  lockReason        String?
+  violationCount    Int             @default(0)
+  lastViolationAt   DateTime?
+  startedAt         DateTime        @default(now())
+  submittedAt       DateTime?
+  gradedAt          DateTime?
+  exam              Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student           StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers           AttemptAnswer[]
+
+  @@unique([examId, studentId, attemptNumber])
+  @@index([studentId, status])
+  @@index([lockedAt])
+}
+
+model AttemptAnswer {
+  id           String      @id @default(cuid())
+  attemptId    String
+  questionId   String
+  response     Json
+  score        Decimal?    @db.Decimal(8, 2)
+  isCorrect    Boolean?
+  aiFeedback   String?     @db.Text
+  aiConfidence Decimal?    @db.Decimal(5, 4)
+  answeredAt   DateTime    @default(now())
+  gradedAt     DateTime?
+  attempt      ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question     Question    @relation(fields: [questionId], references: [id])
+
+  @@unique([attemptId, questionId])
+  @@index([questionId])
+}
+
+model StudentMastery {
+  id          String         @id @default(cuid())
+  studentId   String
+  indicatorId String
+  ability     Decimal        @default(0) @db.Decimal(6, 3)
+  sampleSize  Int            @default(0)
+  correctRate Decimal        @default(0) @db.Decimal(5, 4)
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  indicator   Indicator      @relation(fields: [indicatorId], references: [id], onDelete: Cascade)
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([studentId, indicatorId])
+}
+
+model AiRequest {
+  id             String       @id @default(cuid())
+  organizationId String
+  requestedById  String?
+  task           AiTask
+  provider       String
+  model          String
+  promptVersion  String
+  input          Json
+  output         Json?
+  status         AiStatus     @default(PENDING)
+  latencyMs      Int?
+  tokenUsage     Json?
+  errorMessage   String?      @db.Text
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy    User?        @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+  completedAt    DateTime?
+
+  @@index([organizationId, task, createdAt])
+}

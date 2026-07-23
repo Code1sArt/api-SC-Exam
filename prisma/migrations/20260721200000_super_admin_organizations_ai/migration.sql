@@ -1,0 +1,14 @@
+ALTER TABLE `Organization`
+  ADD COLUMN `isActive` BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN `aiGenerationModel` VARCHAR(191) NULL,
+  ADD COLUMN `aiReasoningModel` VARCHAR(191) NULL,
+  ADD COLUMN `aiReportModel` VARCHAR(191) NULL;
+
+ALTER TABLE `User`
+  MODIFY `role` ENUM('SUPER_ADMIN', 'ADMIN', 'TEACHER', 'STUDENT') NOT NULL;
+
+UPDATE `User`
+SET `role` = 'SUPER_ADMIN'
+WHERE `role` = 'ADMIN'
+ORDER BY `createdAt` ASC
+LIMIT 1;

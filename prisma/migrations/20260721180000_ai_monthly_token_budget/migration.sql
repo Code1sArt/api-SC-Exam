@@ -1,0 +1,2 @@
+ALTER TABLE `Organization`
+  ADD COLUMN `aiMonthlyTokenBudget` INTEGER NOT NULL DEFAULT 1000000;

@@ -1,0 +1,118 @@
+name: CI/CD to Plesk
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Build, test, and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Run unit tests
+        run: npm test -- --runInBand
+
+      - name: Check formatting and lint
+        run: npm run lint -- --no-fix
+
+  deploy:
+    name: Deploy production
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      vars.PLESK_DEPLOY_ENABLED == 'true'
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://api.labedu.tech
+    concurrency:
+      group: plesk-production
+      cancel-in-progress: false
+    env:
+      PLESK_HOST: 118.27.146.122
+      PLESK_PORT: "22"
+      PLESK_USER: admin_lebedu
+      PLESK_APP_ROOT: /var/www/vhosts/labedu.tech/httpdocs/api.labedu.tech
+      PLESK_NODE_BIN_DIR: /opt/plesk/node/22/bin
+      APP_HEALTH_URL: https://api.labedu.tech/api/v1
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Create deployment archive
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='coverage' \
+            --exclude='.env' \
+            -czf "/tmp/api-sc-exam-${GITHUB_SHA}.tar.gz" .
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PLESK_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PLESK_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/plesk_deploy"
+          chmod 600 "$HOME/.ssh/plesk_deploy"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Upload release
+        run: |
+          scp \
+            -i "$HOME/.ssh/plesk_deploy" \
+            -P "$PLESK_PORT" \
+            "/tmp/api-sc-exam-${GITHUB_SHA}.tar.gz" \
+            "${PLESK_USER}@${PLESK_HOST}:/tmp/api-sc-exam-${GITHUB_SHA}.tar.gz"
+
+      - name: Install and restart application
+        run: |
+          ssh \
+            -i "$HOME/.ssh/plesk_deploy" \
+            -p "$PLESK_PORT" \
+            "${PLESK_USER}@${PLESK_HOST}" \
+            bash -s -- \
+            "$PLESK_APP_ROOT" \
+            "/tmp/api-sc-exam-${GITHUB_SHA}.tar.gz" \
+            "$PLESK_NODE_BIN_DIR" \
+            "${GITHUB_SHA}-${GITHUB_RUN_ATTEMPT}" \
+            < scripts/plesk-deploy.sh
+
+      - name: Verify production health
+        run: |
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 10 \
+            --retry-delay 3 \
+            --retry-all-errors \
+            "$APP_HEALTH_URL"
