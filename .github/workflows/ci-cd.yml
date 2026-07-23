@@ -103,7 +103,7 @@ jobs:
             "$PLESK_APP_ROOT" \
             "/tmp/api-sc-exam-${GITHUB_SHA}.tar.gz" \
             "$PLESK_NODE_BIN_DIR" \
-            "${GITHUB_SHA}-${GITHUB_RUN_ATTEMPT}" \
+            "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             < scripts/plesk-deploy.sh
 
       - name: Verify production health

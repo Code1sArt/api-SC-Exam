@@ -11,7 +11,7 @@ if [[ ! "$APP_ROOT" =~ ^/var/www/vhosts/[A-Za-z0-9.-]+/[A-Za-z0-9.-]+$ ]]; then
   exit 1
 fi
 
-if [[ ! "$RELEASE_ID" =~ ^[0-9a-f]{40}-[0-9]+$ ]]; then
+if [[ ! "$RELEASE_ID" =~ ^[0-9a-f]{40}-[0-9]+-[0-9]+$ ]]; then
   echo "Invalid release ID: $RELEASE_ID" >&2
   exit 1
 fi
