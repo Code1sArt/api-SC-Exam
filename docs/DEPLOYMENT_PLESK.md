@@ -37,7 +37,7 @@ Start from `.env.example` and set at least:
 NODE_ENV=production
 DATABASE_URL="mysql://USER:URL_ENCODED_PASSWORD@127.0.0.1:3306/DATABASE"
 JWT_SECRET="GENERATE_A_LONG_RANDOM_SECRET"
-CORS_ORIGINS="https://labedu.tech"
+CORS_ORIGINS="https://labedu.tech,https://www.labedu.tech"
 AI_MOCK_MODE=true
 ```
 

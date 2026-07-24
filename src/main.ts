@@ -18,6 +18,7 @@ async function bootstrap() {
       .map((origin) => origin.trim())
       .filter(Boolean),
     'https://labedu.tech',
+    'https://www.labedu.tech',
   ]);
   app.enableCors({
     origin: [...corsOrigins],
