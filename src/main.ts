@@ -11,11 +11,16 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
   app.use(helmet());
-  app.enableCors({
-    origin: config
+  const corsOrigins = new Set([
+    ...config
       .get<string>('CORS_ORIGINS', 'http://localhost:5173')
       .split(',')
-      .map((origin) => origin.trim()),
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+    'https://labedu.tech',
+  ]);
+  app.enableCors({
+    origin: [...corsOrigins],
     credentials: true,
   });
   app.useGlobalPipes(
@@ -27,19 +32,21 @@ async function bootstrap() {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('SC Exam AI Assessment API')
-    .setDescription(
-      'API for AI-assisted question banks, adaptive examinations, grading, and learning analytics',
-    )
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  SwaggerModule.setup(
-    'docs',
-    app,
-    SwaggerModule.createDocument(app, swaggerConfig),
-  );
+  if (config.get<string>('NODE_ENV') !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('SC Exam AI Assessment API')
+      .setDescription(
+        'API for AI-assisted question banks, adaptive examinations, grading, and learning analytics',
+      )
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    SwaggerModule.setup(
+      'docs',
+      app,
+      SwaggerModule.createDocument(app, swaggerConfig),
+    );
+  }
 
   await app.listen(config.get<number>('PORT', 3000));
 }
