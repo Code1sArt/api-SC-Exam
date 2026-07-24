@@ -97,6 +97,20 @@ export class GradeSubmissionDto {
   memberScores?: MemberGradeDto[];
 }
 
+export class ClassroomGradeDto {
+  @IsString() studentId!: string;
+  @Type(() => Number) @IsNumber() @Min(0) score!: number;
+  @IsOptional() @IsString() @Length(0, 10000) feedback?: string;
+}
+
+export class GradeClassroomDto {
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ClassroomGradeDto)
+  grades!: ClassroomGradeDto[];
+}
+
 export class UpdateGradeScaleDto {
   @IsObject() grades!: Record<string, number>;
 }

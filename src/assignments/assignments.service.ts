@@ -17,6 +17,7 @@ import type { AuthUser } from '../common/auth-user';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateAssignmentDto,
+  ClassroomGradeDto,
   GradeSubmissionDto,
   SubmitAssignmentDto,
   RunCodeDto,
@@ -124,7 +125,25 @@ export class AssignmentsService {
         ...(user.role === UserRole.TEACHER ? { createdById: user.sub } : {}),
       },
       include: {
-        classroom: { select: { id: true, name: true } },
+        classroom: {
+          select: {
+            id: true,
+            name: true,
+            enrollments: {
+              where: { student: { user: { isActive: true } } },
+              select: {
+                student: {
+                  select: {
+                    id: true,
+                    studentCode: true,
+                    user: { select: { firstName: true, lastName: true } },
+                  },
+                },
+              },
+              orderBy: { student: { studentCode: 'asc' } },
+            },
+          },
+        },
         subject: { select: { id: true, name: true } },
         submissions: {
           include: {
@@ -154,6 +173,10 @@ export class AssignmentsService {
     });
     return rows.map((row) => ({
       ...row,
+      students: row.classroom.enrollments.map(
+        (enrollment) => enrollment.student,
+      ),
+      classroom: { id: row.classroom.id, name: row.classroom.name },
       submissions: row.submissions.map((item) => ({
         ...item,
         feedback: item.feedback?.replace(/\bAI\b/gi, 'ระบบ') ?? null,
@@ -558,6 +581,75 @@ export class AssignmentsService {
       }
       return saved;
     });
+  }
+
+  async gradeClassroom(
+    user: AuthUser,
+    id: string,
+    grades: ClassroomGradeDto[],
+  ) {
+    const assignment = await this.managed(user, id);
+    if (assignment.isGroupWork)
+      throw new BadRequestException(
+        'งานกลุ่มต้องให้คะแนนจากรายการส่งงานของแต่ละกลุ่ม',
+      );
+    if (!grades.length)
+      throw new BadRequestException('กรุณากรอกคะแนนอย่างน้อย 1 คน');
+    const studentIds = grades.map((grade) => grade.studentId);
+    if (new Set(studentIds).size !== studentIds.length)
+      throw new BadRequestException('มีรายชื่อนักเรียนซ้ำกัน');
+    if (
+      grades.some(
+        (grade) =>
+          !Number.isFinite(grade.score) ||
+          grade.score < 0 ||
+          grade.score > Number(assignment.maxScore),
+      )
+    )
+      throw new BadRequestException('คะแนนไม่ถูกต้องหรือเกินคะแนนเต็ม');
+    const enrolledCount = await this.prisma.enrollment.count({
+      where: {
+        classroomId: assignment.classroomId,
+        studentId: { in: studentIds },
+        student: {
+          organizationId: user.organizationId,
+          user: { isActive: true },
+        },
+      },
+    });
+    if (enrolledCount !== studentIds.length)
+      throw new BadRequestException('ให้คะแนนได้เฉพาะนักเรียนที่อยู่ในห้องนี้');
+
+    const gradedAt = new Date();
+    await this.prisma.$transaction(
+      grades.map((grade) =>
+        this.prisma.assignmentSubmission.upsert({
+          where: {
+            assignmentId_studentId: {
+              assignmentId: assignment.id,
+              studentId: grade.studentId,
+            },
+          },
+          create: {
+            assignmentId: assignment.id,
+            studentId: grade.studentId,
+            score: grade.score,
+            feedback: grade.feedback,
+            status: SubmissionStatus.GRADED,
+            gradedAt,
+            gradedById: user.sub,
+          },
+          update: {
+            score: grade.score,
+            feedback: grade.feedback,
+            status: SubmissionStatus.GRADED,
+            gradedAt,
+            gradedById: user.sub,
+          },
+        }),
+      ),
+    );
+    return { graded: grades.length };
   }
 
   async gradeScale(user: AuthUser) {

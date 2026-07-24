@@ -16,6 +16,7 @@ import { Roles } from '../common/roles.decorator';
 import { AssignmentsService } from './assignments.service';
 import {
   CreateAssignmentDto,
+  GradeClassroomDto,
   GradeSubmissionDto,
   RunCodeDto,
   RunStoredCodeDto,
@@ -112,5 +113,15 @@ export class AssignmentsController {
     @Body() dto: GradeSubmissionDto,
   ) {
     return this.assignments.grade(user, id, submissionId, dto);
+  }
+
+  @Patch(':id/grades')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  gradeClassroom(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: GradeClassroomDto,
+  ) {
+    return this.assignments.gradeClassroom(user, id, dto.grades);
   }
 }
