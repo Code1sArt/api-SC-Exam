@@ -61,7 +61,10 @@ export class AiService {
       this.config.get<string>('AI_GENERATION_BASE_URL') &&
       this.config.get<string>('AI_GENERATION_API_KEY'),
     );
-    const geminiConfigured = Boolean(this.config.get<string>('GEMINI_API_KEY'));
+    const configuredForModel = (model: string) =>
+      this.isOpenAiModel(model)
+        ? this.isOpenAiConfigured()
+        : Boolean(this.config.get<string>('GEMINI_API_KEY'));
     const service = (
       id: string,
       provider: string,
@@ -91,17 +94,17 @@ export class AiService {
         ),
         service(
           'reasoning',
-          'Gemini Flash',
+          this.isOpenAiModel(models.reasoning) ? 'OpenAI GPT' : 'Gemini Flash',
           'ตรวจคำตอบและให้เหตุผล',
           models.reasoning,
-          geminiConfigured,
+          configuredForModel(models.reasoning),
         ),
         service(
           'report',
-          'Flash-Lite',
+          this.isOpenAiModel(models.report) ? 'OpenAI GPT' : 'Flash-Lite',
           'สร้างรายงานผลการเรียนรู้',
           models.report,
-          geminiConfigured,
+          configuredForModel(models.report),
         ),
       ],
     };
@@ -129,22 +132,12 @@ export class AiService {
       });
     }
 
-    const apiKey = this.config.get<string>('GEMINI_API_KEY');
-    if (!apiKey) {
-      return this.cacheStudentStatus(organizationId, {
-        status: 'UNAVAILABLE' as const,
-        feedback: false,
-        report: false,
-        checkedAt,
-      });
-    }
-
     const models = await this.getModels(organizationId);
     const availability = new Map<string, Promise<boolean>>();
     const check = (model: string) => {
       const existing = availability.get(model);
       if (existing) return existing;
-      const pending = this.isGeminiModelAvailable(model, apiKey);
+      const pending = this.isModelAvailable(model);
       availability.set(model, pending);
       return pending;
     };
@@ -438,6 +431,9 @@ ${JSON.stringify(input)}
       await this.logMock(context, task, model, input, output);
       return output;
     }
+    if (this.isOpenAiModel(model)) {
+      return this.runOpenAiJson<T>(context, task, input, prompt, model);
+    }
     const apiKey = this.config.get<string>('GEMINI_API_KEY');
     if (!apiKey)
       throw new ServiceUnavailableException('Gemini AI is not configured');
@@ -556,6 +552,95 @@ ${JSON.stringify(input)}
     } catch {
       return false;
     }
+  }
+
+  private isOpenAiModel(model: string) {
+    return /^gpt(?:-|$)/i.test(model.trim());
+  }
+
+  private isOpenAiConfigured() {
+    return Boolean(
+      this.config.get<string>('AI_GENERATION_BASE_URL') &&
+      this.config.get<string>('AI_GENERATION_API_KEY'),
+    );
+  }
+
+  private async isModelAvailable(model: string) {
+    if (this.isOpenAiModel(model)) return this.isOpenAiModelAvailable(model);
+    const apiKey = this.config.get<string>('GEMINI_API_KEY');
+    return apiKey ? this.isGeminiModelAvailable(model, apiKey) : false;
+  }
+
+  private async isOpenAiModelAvailable(model: string) {
+    const baseUrl = this.config.get<string>('AI_GENERATION_BASE_URL');
+    const apiKey = this.config.get<string>('AI_GENERATION_API_KEY');
+    if (!baseUrl || !apiKey) return false;
+    try {
+      const response = await fetch(
+        `${baseUrl.replace(/\/$/, '')}/models/${encodeURIComponent(model)}`,
+        {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(5000),
+        },
+      );
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  private async runOpenAiJson<T>(
+    context: AiContext,
+    task: AiTask,
+    input: object,
+    prompt: string,
+    model: string,
+  ): Promise<T> {
+    const baseUrl = this.config.get<string>('AI_GENERATION_BASE_URL');
+    const apiKey = this.config.get<string>('AI_GENERATION_API_KEY');
+    if (!baseUrl || !apiKey)
+      throw new ServiceUnavailableException('OpenAI AI is not configured');
+
+    return this.withLog(context, task, 'openai', model, input, async () => {
+      const response = await fetch(
+        `${baseUrl.replace(/\/$/, '')}/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            ...(!/^gpt-5(?:\.|-|$)/i.test(model) ? { temperature: 0.2 } : {}),
+            messages: [
+              { role: 'system', content: 'Return valid JSON only.' },
+              { role: 'user', content: prompt },
+            ],
+            response_format: { type: 'json_object' },
+          }),
+        },
+      );
+      if (!response.ok) await this.throwUpstreamError(response, 'OpenAI');
+      const body = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+        };
+      };
+      const inputTokens = body.usage?.prompt_tokens ?? 0;
+      const outputTokens = body.usage?.completion_tokens ?? 0;
+      return {
+        output: this.parseJson<T>(body.choices?.[0]?.message?.content ?? ''),
+        tokenUsage: {
+          inputTokens,
+          outputTokens,
+          totalTokens: body.usage?.total_tokens ?? inputTokens + outputTokens,
+        },
+      };
+    });
   }
 
   private cacheStudentStatus(
