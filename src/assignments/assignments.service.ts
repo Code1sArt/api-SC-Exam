@@ -662,9 +662,9 @@ export class AssignmentsService {
       throw new BadRequestException('กรุณาเลือกโมเดลสำหรับตรวจ Code');
     if (
       dto.aiGradingEnabled &&
-      !/^gemini(?:[.-]|$)/i.test(dto.aiGradingModel?.trim() ?? '')
+      !/^(?:gemini|gpt)(?:[.-]|$)/i.test(dto.aiGradingModel?.trim() ?? '')
     )
-      throw new BadRequestException('โมเดลตรวจ Code ต้องเป็น Gemini');
+      throw new BadRequestException('โมเดลตรวจ Code ต้องเป็น Gemini หรือ GPT');
   }
 
   private validateGroupSettings(dto: {
