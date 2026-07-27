@@ -31,6 +31,16 @@ interface AiOperationResult<T> {
   tokenUsage?: TokenUsage;
 }
 
+export interface PlaygroundAdvice {
+  summary: string;
+  suggestions: Array<{
+    title: string;
+    detail: string;
+    line?: number;
+  }>;
+  nextStep: string;
+}
+
 @Injectable()
 export class AiService {
   private readonly studentStatusCache = new Map<
@@ -52,9 +62,13 @@ export class AiService {
   ) {}
 
   async getStatus(organizationId: string) {
-    const [models, studentAiEnabled] = await Promise.all([
+    const [models, studentAiEnabled, playground] = await Promise.all([
       this.getModels(organizationId),
       this.isStudentAiEnabled(organizationId),
+      this.prisma.organization.findUniqueOrThrow({
+        where: { id: organizationId },
+        select: { playgroundEnabled: true },
+      }),
     ]);
     const mockMode = this.isMockMode();
     const lunaConfigured = Boolean(
@@ -84,6 +98,7 @@ export class AiService {
     return {
       mockMode,
       studentAiEnabled,
+      playgroundEnabled: playground.playgroundEnabled,
       services: [
         service(
           'generation',
@@ -290,6 +305,31 @@ score ต้องอยู่ระหว่าง 0 ถึงคะแนน�
       input,
       prompt,
       selectedModel || models.reasoning,
+    );
+  }
+
+  async advisePlaygroundCode(
+    context: AiContext,
+    input: { language: string; sourceCode: string },
+  ): Promise<PlaygroundAdvice> {
+    if (!(await this.isStudentAiEnabled(context.organizationId)))
+      throw new ForbiddenException('ผู้ดูแลระบบปิด AI สำหรับผู้เรียน');
+    const prompt = `คุณเป็นผู้ช่วยสอนเขียนโปรแกรมสำหรับนักเรียน วิเคราะห์โค้ดโดยไม่เขียนคำตอบแทนทั้งหมด
+ภาษา: ${input.language}
+Source code:
+\`\`\`${input.language.toLowerCase()}
+${input.sourceCode}
+\`\`\`
+อธิบายเป็นภาษาไทยที่เป็นมิตร ชี้จุดผิดหรือจุดที่ควรปรับปรุงแบบนำไปแก้เองได้ หากระบุบรรทัดได้ให้ใส่เลขบรรทัด
+ตอบ JSON เท่านั้น: {"summary": string, "suggestions": [{"title": string, "detail": string, "line"?: number}], "nextStep": string}
+suggestions ไม่เกิน 5 รายการ และห้ามส่ง source code ฉบับสมบูรณ์กลับมา`;
+    const models = await this.getModels(context.organizationId);
+    return this.runGemini<PlaygroundAdvice>(
+      context,
+      AiTask.PLAYGROUND_ADVICE,
+      input,
+      prompt,
+      models.reasoning,
     );
   }
 
@@ -775,7 +815,7 @@ ${JSON.stringify(input)}
   private mockGemini(
     task: AiTask,
     input: object,
-  ): GradeResult | LearningReport {
+  ): GradeResult | LearningReport | PlaygroundAdvice {
     if (task === AiTask.GENERATE_REPORT) {
       return {
         summary: 'รายงานตัวอย่างจากโหมดจำลอง',
@@ -783,6 +823,18 @@ ${JSON.stringify(input)}
         weaknesses: [],
         recommendations: ['เชื่อมต่อ Gemini API เพื่อรับผลวิเคราะห์จริง'],
         group: 'AVERAGE',
+      };
+    }
+    if (task === AiTask.PLAYGROUND_ADVICE) {
+      return {
+        summary: 'คำแนะนำตัวอย่างจากโหมดจำลอง',
+        suggestions: [
+          {
+            title: 'ตรวจสอบลำดับการทำงาน',
+            detail: 'ลองไล่ค่าตัวแปรทีละบรรทัดและทดสอบด้วย input ขนาดเล็ก',
+          },
+        ],
+        nextStep: 'เชื่อมต่อผู้ให้บริการ AI เพื่อรับคำแนะนำจากโค้ดจริง',
       };
     }
     const maxScore = Number((input as { maxScore?: number }).maxScore ?? 1);

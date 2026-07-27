@@ -12,6 +12,7 @@ import { AuthModule } from './auth/auth.module';
 import { ExamsModule } from './exams/exams.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PlatformModule } from './platform/platform.module';
+import { PlaygroundModule } from './playground/playground.module';
 import { QuestionsModule } from './questions/questions.module';
 import { RecordsModule } from './records/records.module';
 
@@ -28,6 +29,7 @@ import { RecordsModule } from './records/records.module';
     ExamsModule,
     AnalyticsModule,
     AssignmentsModule,
+    PlaygroundModule,
     RecordsModule,
   ],
   controllers: [AppController],

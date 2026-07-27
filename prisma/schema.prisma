@@ -54,6 +54,7 @@ enum AiTask {
   GRADE_ANSWER
   GRADE_CODE
   EXPLAIN_ANSWER
+  PLAYGROUND_ADVICE
   GENERATE_REMEDIAL
   GENERATE_REPORT
 }
@@ -101,6 +102,7 @@ model Organization {
   aiReasoningModel     String?
   aiReportModel        String?
   studentAiEnabled     Boolean          @default(true)
+  playgroundEnabled    Boolean          @default(true)
   aiMonthlyTokenBudget Int              @default(1000000)
   users                User[]
   studentProfiles      StudentProfile[]

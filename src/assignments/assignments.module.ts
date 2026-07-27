@@ -8,5 +8,6 @@ import { CodeRunnerService } from './code-runner.service';
   imports: [AiModule],
   controllers: [AssignmentsController],
   providers: [AssignmentsService, CodeRunnerService],
+  exports: [CodeRunnerService],
 })
 export class AssignmentsModule {}
