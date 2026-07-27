@@ -196,6 +196,10 @@ export class AssignmentsService {
         ...dto,
         type,
         codeLanguage: type === AssignmentType.CODE ? dto.codeLanguage : null,
+        problemPdfUrl:
+          type === AssignmentType.CODE
+            ? dto.problemPdfUrl?.trim() || null
+            : null,
         aiGradingEnabled:
           type === AssignmentType.CODE
             ? (dto.aiGradingEnabled ?? false)
@@ -250,6 +254,12 @@ export class AssignmentsService {
         codeLanguage:
           type === AssignmentType.CODE
             ? (dto.codeLanguage ?? assignment.codeLanguage)
+            : null,
+        problemPdfUrl:
+          type === AssignmentType.CODE
+            ? dto.problemPdfUrl === undefined
+              ? assignment.problemPdfUrl
+              : dto.problemPdfUrl.trim() || null
             : null,
         aiGradingEnabled:
           type === AssignmentType.CODE

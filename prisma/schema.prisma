@@ -311,6 +311,7 @@ model Assignment {
   status           AssignmentStatus       @default(DRAFT)
   type             AssignmentType         @default(GENERAL)
   codeLanguage     CodeLanguage?
+  problemPdfUrl    String?                @db.VarChar(2048)
   aiGradingEnabled Boolean                @default(false)
   aiGradingModel   String?
   isGroupWork      Boolean                @default(false)

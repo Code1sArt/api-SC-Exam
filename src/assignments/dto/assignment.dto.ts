@@ -15,6 +15,7 @@ import {
   Max,
   Min,
   IsBoolean,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -39,6 +40,10 @@ export class CreateAssignmentDto {
   @IsOptional() @IsEnum(AssignmentStatus) status?: AssignmentStatus;
   @IsOptional() @IsEnum(AssignmentType) type?: AssignmentType;
   @IsOptional() @IsEnum(CodeLanguage) codeLanguage?: CodeLanguage;
+  @ValidateIf((_, value) => value !== undefined && value !== '')
+  @IsUrl({ require_protocol: true })
+  @Length(0, 2048)
+  problemPdfUrl?: string;
   @IsOptional() @Type(() => Boolean) @IsBoolean() aiGradingEnabled?: boolean;
   @IsOptional() @IsString() @Length(1, 200) aiGradingModel?: string;
   @IsOptional() @Type(() => Boolean) @IsBoolean() isGroupWork?: boolean;
