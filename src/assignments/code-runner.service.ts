@@ -99,7 +99,9 @@ export class CodeRunnerService {
           runtime.versionKey,
           runtime.defaultVersion,
         ),
-        files: [{ name: runtime.filename, content: sourceCode }],
+        files: [
+          { name: runtime.filename, content: sourceCode, encoding: 'utf8' },
+        ],
         stdin: stdin ?? '',
         compile_timeout: 10_000,
         run_timeout: 3_000,
