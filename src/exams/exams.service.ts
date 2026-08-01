@@ -19,7 +19,7 @@ import { GradeResult, LearningReport } from '../ai/ai.types';
 import { AuthUser } from '../common/auth-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdaptiveService, DIFFICULTY_LEVELS } from './adaptive.service';
-import { CreateExamDto, SubmitAnswerDto } from './dto/exam.dto';
+import { CreateExamDto, SubmitAnswerDto, UpdateExamDto } from './dto/exam.dto';
 
 @Injectable()
 export class ExamsService {
@@ -30,10 +30,11 @@ export class ExamsService {
   ) {}
 
   async create(user: AuthUser, dto: CreateExamDto) {
-    const [classroom, subject, questions] = await Promise.all([
-      this.prisma.classroom.findFirst({
+    const classroomIds = this.classroomIds(dto);
+    const [classrooms, subject, questions] = await Promise.all([
+      this.prisma.classroom.findMany({
         where: {
-          id: dto.classroomId,
+          id: { in: classroomIds },
           organizationId: user.organizationId,
           isActive: true,
           ...(user.role === UserRole.TEACHER ? { teacherId: user.sub } : {}),
@@ -52,38 +53,194 @@ export class ExamsService {
         select: { id: true },
       }),
     ]);
-    if (!classroom) throw new NotFoundException('Classroom not found');
+    if (classrooms.length !== classroomIds.length)
+      throw new NotFoundException('One or more classrooms not found');
     if (!subject) throw new NotFoundException('Subject not found');
     if (questions.length !== new Set(dto.items.map((i) => i.questionId)).size)
       throw new BadRequestException('One or more questions are invalid');
+    await this.validateQuestionSelection(user, dto);
 
-    return this.prisma.exam.create({
-      data: {
-        organizationId: user.organizationId,
-        classroomId: dto.classroomId,
-        subjectId: dto.subjectId,
-        createdById: user.sub,
-        title: dto.title,
-        description: dto.description,
-        isAdaptive: dto.isAdaptive,
-        durationMinutes: dto.durationMinutes,
-        availableFrom: dto.availableFrom
-          ? new Date(dto.availableFrom)
-          : undefined,
-        availableUntil: dto.availableUntil
-          ? new Date(dto.availableUntil)
-          : undefined,
-        maxAttempts: dto.maxAttempts,
-        items: {
-          create: dto.items.map((item, index) => ({
-            questionId: item.questionId,
-            position: index + 1,
-            score: item.score,
-          })),
+    return this.prisma.$transaction(
+      classroomIds.map((classroomId) =>
+        this.prisma.exam.create({
+          data: {
+            organizationId: user.organizationId,
+            classroomId,
+            subjectId: dto.subjectId,
+            createdById: user.sub,
+            title: dto.title,
+            description: dto.description,
+            isAdaptive: dto.isAdaptive,
+            questionCount: dto.questionCount,
+            essayQuestionCount: dto.essayQuestionCount ?? null,
+            questionTypeCounts: dto.questionTypeCounts
+              ? (dto.questionTypeCounts as Prisma.InputJsonValue)
+              : undefined,
+            durationMinutes: dto.durationMinutes,
+            availableFrom: dto.availableFrom
+              ? new Date(dto.availableFrom)
+              : undefined,
+            availableUntil: dto.availableUntil
+              ? new Date(dto.availableUntil)
+              : undefined,
+            maxAttempts: dto.maxAttempts,
+            items: {
+              create: dto.items.map((item, index) => ({
+                questionId: item.questionId,
+                position: index + 1,
+                score: item.score,
+              })),
+            },
+          },
+          include: { items: { include: { question: true } } },
+        }),
+      ),
+    );
+  }
+
+  async update(user: AuthUser, examId: string, dto: UpdateExamDto) {
+    const exam = await this.requireManagedExam(user, examId);
+    const attemptCount = await this.prisma.examAttempt.count({
+      where: { examId },
+    });
+    if (attemptCount)
+      throw new BadRequestException(
+        'Exams with attempts cannot be edited; close the exam and create a new copy instead',
+      );
+
+    const currentItems = await this.prisma.examItem.findMany({
+      where: { examId },
+      orderBy: { position: 'asc' },
+    });
+    const merged: CreateExamDto = {
+      classroomId: dto.classroomId ?? exam.classroomId,
+      subjectId: dto.subjectId ?? exam.subjectId,
+      title: dto.title ?? exam.title,
+      description: dto.description ?? exam.description ?? undefined,
+      isAdaptive: dto.isAdaptive ?? exam.isAdaptive,
+      questionCount: dto.questionCount ?? exam.questionCount,
+      essayQuestionCount:
+        dto.essayQuestionCount === undefined
+          ? exam.essayQuestionCount
+          : dto.essayQuestionCount,
+      questionTypeCounts:
+        dto.questionTypeCounts ??
+        this.typeCounts(exam.questionTypeCounts) ??
+        undefined,
+      durationMinutes: dto.durationMinutes ?? exam.durationMinutes ?? undefined,
+      availableFrom: dto.availableFrom ?? exam.availableFrom?.toISOString(),
+      availableUntil: dto.availableUntil ?? exam.availableUntil?.toISOString(),
+      maxAttempts: dto.maxAttempts ?? exam.maxAttempts,
+      items:
+        dto.items ??
+        currentItems.map((item) => ({
+          questionId: item.questionId,
+          score: Number(item.score),
+        })),
+    };
+    await this.validateQuestionSelection(user, merged);
+
+    return this.prisma.$transaction(async (tx) => {
+      if (dto.items) {
+        await tx.examItem.deleteMany({ where: { examId } });
+      }
+      return tx.exam.update({
+        where: { id: examId },
+        data: {
+          classroomId: merged.classroomId,
+          subjectId: merged.subjectId,
+          title: merged.title,
+          description: merged.description,
+          isAdaptive: merged.isAdaptive,
+          questionCount: merged.questionCount,
+          essayQuestionCount: merged.essayQuestionCount ?? null,
+          questionTypeCounts: merged.questionTypeCounts
+            ? (merged.questionTypeCounts as Prisma.InputJsonValue)
+            : Prisma.DbNull,
+          durationMinutes: merged.durationMinutes,
+          availableFrom: merged.availableFrom
+            ? new Date(merged.availableFrom)
+            : null,
+          availableUntil: merged.availableUntil
+            ? new Date(merged.availableUntil)
+            : null,
+          maxAttempts: merged.maxAttempts,
+          ...(dto.items
+            ? {
+                items: {
+                  create: merged.items.map((item, index) => ({
+                    questionId: item.questionId,
+                    position: index + 1,
+                    score: item.score,
+                  })),
+                },
+              }
+            : {}),
+        },
+        include: { items: { include: { question: true } } },
+      });
+    });
+  }
+
+  async remove(user: AuthUser, examId: string) {
+    await this.requireManagedExam(user, examId);
+    const attempts = await this.prisma.examAttempt.findMany({
+      where: { examId },
+      select: {
+        studentId: true,
+        answers: {
+          select: { question: { select: { indicatorId: true } } },
         },
       },
-      include: { items: { include: { question: true } } },
     });
+    const masteryPairsByKey = new Map<
+      string,
+      { studentId: string; indicatorId: string }
+    >();
+    for (const attempt of attempts) {
+      for (const answer of attempt.answers) {
+        const { indicatorId } = answer.question;
+        if (!indicatorId) continue;
+        masteryPairsByKey.set(`${attempt.studentId}:${indicatorId}`, {
+          studentId: attempt.studentId,
+          indicatorId,
+        });
+      }
+    }
+    const masteryPairs = [...masteryPairsByKey.values()];
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.exam.delete({ where: { id: examId } });
+      if (!masteryPairs.length) return;
+      await tx.studentMastery.deleteMany({
+        where: { OR: masteryPairs },
+      });
+      const remainingAnswers = await tx.attemptAnswer.findMany({
+        where: {
+          OR: masteryPairs.map(({ studentId, indicatorId }) => ({
+            attempt: { studentId },
+            question: { indicatorId },
+          })),
+        },
+        select: {
+          attempt: { select: { studentId: true } },
+          isCorrect: true,
+          question: { select: { indicatorId: true, difficulty: true } },
+        },
+        orderBy: { answeredAt: 'asc' },
+      });
+      for (const answer of remainingAnswers) {
+        if (answer.isCorrect === null || !answer.question.indicatorId) continue;
+        await this.updateMastery(
+          tx,
+          answer.attempt.studentId,
+          answer.question.indicatorId,
+          answer.isCorrect,
+          answer.question.difficulty,
+        );
+      }
+    });
+    return { id: examId, deleted: true, deletedAttempts: attempts.length };
   }
 
   list(user: AuthUser) {
@@ -96,6 +253,24 @@ export class ExamsService {
       include: {
         classroom: { select: { id: true, name: true } },
         subject: { select: { id: true, name: true } },
+        items: {
+          include: {
+            question: {
+              select: {
+                id: true,
+                type: true,
+                difficulty: true,
+                prompt: true,
+                imageUrl: true,
+                source: true,
+                maxScore: true,
+                subjectId: true,
+                subject: { select: { id: true, code: true, name: true } },
+              },
+            },
+          },
+          orderBy: { position: 'asc' },
+        },
         _count: { select: { items: true, attempts: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -357,37 +532,28 @@ export class ExamsService {
     this.assertAttemptUnlocked(attempt);
     this.assertWithinDuration(attempt);
 
-    const answeredIds = attempt.answers.map((answer) => answer.questionId);
-    const remaining = attempt.exam.items.filter(
-      (item) => !answeredIds.includes(item.questionId),
+    const answeredIds = new Set(
+      attempt.answers.map((answer) => answer.questionId),
+    );
+    const planned = this.plannedItems(attempt);
+    const remaining = planned.filter(
+      (item) => !answeredIds.has(item.questionId),
     );
     if (!remaining.length) return null;
-
-    const item = attempt.exam.isAdaptive
-      ? remaining.sort(
-          (a, b) =>
-            Math.abs(
-              DIFFICULTY_LEVELS.indexOf(a.question.difficulty) -
-                DIFFICULTY_LEVELS.indexOf(attempt.currentDifficulty),
-            ) -
-            Math.abs(
-              DIFFICULTY_LEVELS.indexOf(b.question.difficulty) -
-                DIFFICULTY_LEVELS.indexOf(attempt.currentDifficulty),
-            ),
-        )[0]
-      : remaining.sort((a, b) => a.position - b.position)[0];
+    const item = remaining[0];
 
     return {
       id: item.question.id,
       type: item.question.type,
       difficulty: item.question.difficulty,
       prompt: item.question.prompt,
+      imageUrl: item.question.imageUrl,
       options: item.question.options,
       score: item.score,
       position: item.position,
       progress: {
         answered: attempt.answers.length,
-        total: attempt.exam.items.length,
+        total: attempt.exam.questionCount,
         currentDifficulty: attempt.currentDifficulty,
       },
     };
@@ -410,10 +576,19 @@ export class ExamsService {
       (examItem) => examItem.questionId === questionId,
     );
     if (!item) throw new BadRequestException('Question is not in this exam');
-
-    const studentAiEnabled = await this.ai.isStudentAiEnabled(
-      user.organizationId,
+    const answeredIds = new Set(
+      attempt.answers.map((answer) => answer.questionId),
     );
+    const currentItem = this.plannedItems(attempt).find(
+      (plannedItem) => !answeredIds.has(plannedItem.questionId),
+    );
+    if (currentItem?.questionId !== questionId)
+      throw new BadRequestException('Question is not current for this attempt');
+
+    const usesAi = item.question.type === QuestionType.ESSAY;
+    const studentAiEnabled = usesAi
+      ? await this.ai.isStudentAiEnabled(user.organizationId)
+      : false;
     const grade = await this.grade(
       user,
       item.question,
@@ -435,8 +610,8 @@ export class ExamsService {
           response: dto.response as Prisma.InputJsonValue,
           score: grade.score,
           isCorrect: grade.isCorrect,
-          aiFeedback: studentAiEnabled ? grade.feedback : null,
-          aiConfidence: grade.confidence,
+          aiFeedback: usesAi && studentAiEnabled ? grade.feedback : null,
+          aiConfidence: usesAi ? grade.confidence : null,
           gradedAt: new Date(),
         },
       });
@@ -456,7 +631,7 @@ export class ExamsService {
       return created;
     });
     return {
-      answer,
+      answer: { ...answer, feedback: grade.feedback },
       adaptiveState: state,
       nextQuestion: await this.nextQuestion(user, attemptId),
     };
@@ -471,7 +646,7 @@ export class ExamsService {
       (total, answer) => total + Number(answer.score ?? 0),
       0,
     );
-    const maxScore = attempt.exam.items.reduce(
+    const maxScore = this.plannedItems(attempt).reduce(
       (total, item) => total + Number(item.score),
       0,
     );
@@ -549,12 +724,27 @@ export class ExamsService {
           response: answer.response,
           score: answer.score,
           isCorrect: answer.isCorrect,
-          aiFeedback: studentAiEnabled ? answer.aiFeedback : null,
+          feedback:
+            item?.question.type === QuestionType.ESSAY
+              ? studentAiEnabled
+                ? answer.aiFeedback
+                : null
+              : item
+                ? item.question.explanation ||
+                  (answer.isCorrect
+                    ? 'คำตอบถูกต้อง'
+                    : 'คำตอบยังไม่ถูกต้อง ลองทบทวนอีกครั้ง')
+                : null,
+          aiFeedback:
+            item?.question.type === QuestionType.ESSAY && studentAiEnabled
+              ? answer.aiFeedback
+              : null,
           question: item
             ? {
                 id: item.question.id,
                 type: item.question.type,
                 prompt: item.question.prompt,
+                imageUrl: item.question.imageUrl,
                 position: item.position,
                 maxScore: item.score,
               }
@@ -680,32 +870,14 @@ export class ExamsService {
         : { ...result, feedback: 'ระบบตรวจคำตอบและบันทึกผลเรียบร้อยแล้ว' };
     }
     const isCorrect = this.isObjectivelyCorrect(question.answerKey, response);
-    let feedback =
+    const feedback =
       question.explanation ||
       (isCorrect ? 'คำตอบถูกต้อง' : 'คำตอบยังไม่ถูกต้อง ลองทบทวนอีกครั้ง');
-    let confidence = 1;
-    if (studentAiEnabled) {
-      try {
-        const aiGrade = await this.ai.gradeAnswer(
-          { organizationId: user.organizationId, requestedById: user.sub },
-          {
-            prompt: question.prompt,
-            answerKey: question.answerKey,
-            response,
-            maxScore,
-          },
-        );
-        feedback = aiGrade.feedback || feedback;
-        confidence = this.clamp(aiGrade.confidence);
-      } catch {
-        // Objective grading remains available when the optional reasoning AI is down.
-      }
-    }
     return {
       score: isCorrect ? maxScore : 0,
       isCorrect,
       feedback,
-      confidence,
+      confidence: 1,
     };
   }
 
@@ -777,6 +949,251 @@ export class ExamsService {
     });
     if (!exam) throw new NotFoundException('Exam not found');
     return exam;
+  }
+
+  private async validateQuestionSelection(
+    user: AuthUser,
+    dto: Pick<
+      CreateExamDto,
+      | 'classroomId'
+      | 'classroomIds'
+      | 'subjectId'
+      | 'items'
+      | 'isAdaptive'
+      | 'questionCount'
+      | 'essayQuestionCount'
+      | 'questionTypeCounts'
+    >,
+  ) {
+    const classroomIds = this.classroomIds(dto);
+    const [classrooms, questions] = await Promise.all([
+      this.prisma.classroom.findMany({
+        where: {
+          id: { in: classroomIds },
+          organizationId: user.organizationId,
+          isActive: true,
+          ...(user.role === UserRole.TEACHER ? { teacherId: user.sub } : {}),
+        },
+        select: { id: true },
+      }),
+      this.prisma.question.findMany({
+        where: {
+          id: { in: dto.items.map((item) => item.questionId) },
+          organizationId: user.organizationId,
+          subjectId: dto.subjectId,
+          isActive: true,
+        },
+        select: { id: true, type: true },
+      }),
+    ]);
+    if (classrooms.length !== classroomIds.length)
+      throw new NotFoundException('One or more classrooms not found');
+    if (
+      questions.length !==
+      new Set(dto.items.map((item) => item.questionId)).size
+    )
+      throw new BadRequestException('One or more questions are invalid');
+    if (dto.questionCount > questions.length)
+      throw new BadRequestException(
+        'Question count cannot exceed the selected question pool',
+      );
+    if (dto.isAdaptive && questions.length <= dto.questionCount)
+      throw new BadRequestException(
+        'Adaptive exams require a question pool larger than the actual question count',
+      );
+    const typeCounts = this.typeCounts(dto.questionTypeCounts);
+    if (typeCounts) {
+      const total = Object.values(typeCounts).reduce(
+        (sum, count) => sum + count,
+        0,
+      );
+      if (total !== dto.questionCount)
+        throw new BadRequestException(
+          'Question type counts must add up to the actual question count',
+        );
+      for (const type of Object.values(QuestionType)) {
+        const target = typeCounts[type] ?? 0;
+        const available = questions.filter(
+          (question) => question.type === type,
+        ).length;
+        if (target > available)
+          throw new BadRequestException(
+            `Not enough ${type} questions for the configured count`,
+          );
+      }
+      return;
+    }
+    const essayCount = questions.filter(
+      (question) => question.type === QuestionType.ESSAY,
+    ).length;
+    const assignedEssayCount = dto.essayQuestionCount ?? essayCount;
+    if (assignedEssayCount > essayCount)
+      throw new BadRequestException(
+        'Random essay count cannot exceed the selected essay pool',
+      );
+    if (assignedEssayCount > dto.questionCount)
+      throw new BadRequestException(
+        'Essay count cannot exceed the actual question count',
+      );
+    const objectiveCount = questions.length - essayCount;
+    if (dto.questionCount - assignedEssayCount > objectiveCount)
+      throw new BadRequestException(
+        'Not enough objective questions for the configured question count',
+      );
+  }
+
+  private classroomIds(
+    dto: Pick<CreateExamDto, 'classroomId' | 'classroomIds'>,
+  ) {
+    const ids = dto.classroomIds?.length
+      ? dto.classroomIds
+      : dto.classroomId
+        ? [dto.classroomId]
+        : [];
+    if (!ids.length)
+      throw new BadRequestException('At least one classroom is required');
+    return [...new Set(ids)];
+  }
+
+  private plannedItems(
+    attempt: Awaited<ReturnType<ExamsService['requireAttempt']>>,
+  ) {
+    const { exam } = attempt;
+    const typeCounts = this.typeCounts(exam.questionTypeCounts);
+    if (typeCounts) {
+      const selected = Object.values(QuestionType).flatMap((type) => {
+        const target = typeCounts[type] ?? 0;
+        if (!target) return [];
+        const pool = exam.items.filter((item) => item.question.type === type);
+        const answeredIds = new Set(
+          attempt.answers
+            .map((answer) => answer.questionId)
+            .filter((id) => pool.some((item) => item.questionId === id)),
+        );
+        const answered = pool.filter((item) =>
+          answeredIds.has(item.questionId),
+        );
+        const remaining = pool
+          .filter((item) => !answeredIds.has(item.questionId))
+          .sort((a, b) => {
+            const distance = exam.isAdaptive
+              ? this.adaptive.distance(
+                  a.question.difficulty,
+                  attempt.currentDifficulty,
+                ) -
+                this.adaptive.distance(
+                  b.question.difficulty,
+                  attempt.currentDifficulty,
+                )
+              : 0;
+            return (
+              distance ||
+              this.stableOrder(attempt.id, a.questionId) -
+                this.stableOrder(attempt.id, b.questionId)
+            );
+          });
+        return [
+          ...answered,
+          ...remaining.slice(0, Math.max(0, target - answered.length)),
+        ];
+      });
+      if (exam.isAdaptive) return selected;
+      return selected.sort(
+        (a, b) =>
+          this.stableOrder(attempt.id, a.questionId) -
+          this.stableOrder(attempt.id, b.questionId),
+      );
+    }
+    const essays = exam.items.filter(
+      (item) => item.question.type === QuestionType.ESSAY,
+    );
+    const objective = exam.items.filter(
+      (item) => item.question.type !== QuestionType.ESSAY,
+    );
+    const essayTarget = Math.min(
+      exam.essayQuestionCount ?? essays.length,
+      essays.length,
+    );
+    const objectiveTarget = Math.max(0, exam.questionCount - essayTarget);
+    const answeredObjectiveIds = new Set(
+      attempt.answers
+        .map((answer) => answer.questionId)
+        .filter((id) => objective.some((item) => item.questionId === id)),
+    );
+    const answeredObjective = objective.filter((item) =>
+      answeredObjectiveIds.has(item.questionId),
+    );
+    const remainingObjective = objective
+      .filter((item) => !answeredObjectiveIds.has(item.questionId))
+      .sort((a, b) => {
+        if (!exam.isAdaptive)
+          return (
+            this.stableOrder(attempt.id, a.questionId) -
+            this.stableOrder(attempt.id, b.questionId)
+          );
+        const distance =
+          this.adaptive.distance(
+            a.question.difficulty,
+            attempt.currentDifficulty,
+          ) -
+          this.adaptive.distance(
+            b.question.difficulty,
+            attempt.currentDifficulty,
+          );
+        return (
+          distance ||
+          this.stableOrder(attempt.id, a.questionId) -
+            this.stableOrder(attempt.id, b.questionId)
+        );
+      });
+    const selectedObjective = [
+      ...answeredObjective,
+      ...remainingObjective.slice(
+        0,
+        Math.max(0, objectiveTarget - answeredObjective.length),
+      ),
+    ];
+    const selectedEssays = [...essays]
+      .sort(
+        (a, b) =>
+          this.stableOrder(attempt.id, a.questionId) -
+          this.stableOrder(attempt.id, b.questionId),
+      )
+      .slice(0, essayTarget);
+    const selected = [...selectedObjective, ...selectedEssays];
+    if (exam.isAdaptive) return selected;
+    return selected.sort(
+      (a, b) =>
+        this.stableOrder(attempt.id, a.questionId) -
+        this.stableOrder(attempt.id, b.questionId),
+    );
+  }
+
+  private stableOrder(attemptId: string, questionId: string) {
+    let value = 2166136261;
+    for (const character of `${attemptId}:${questionId}`) {
+      value ^= character.charCodeAt(0);
+      value = Math.imul(value, 16777619);
+    }
+    return value >>> 0;
+  }
+
+  private typeCounts(value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      return null;
+    const source = value as Record<string, unknown>;
+    const result: Partial<Record<QuestionType, number>> = {};
+    for (const [key, rawCount] of Object.entries(source)) {
+      if (!Object.values(QuestionType).includes(key as QuestionType))
+        throw new BadRequestException(`Unknown question type: ${key}`);
+      const count = Number(rawCount);
+      if (!Number.isInteger(count) || count < 0)
+        throw new BadRequestException(
+          'Question type counts must be non-negative integers',
+        );
+      result[key as QuestionType] = count;
+    }
+    return result;
   }
 
   private async requireAttempt(user: AuthUser, attemptId: string) {

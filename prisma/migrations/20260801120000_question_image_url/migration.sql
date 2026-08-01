@@ -1,0 +1,2 @@
+ALTER TABLE `Question`
+  ADD COLUMN `imageUrl` VARCHAR(2048) NULL;

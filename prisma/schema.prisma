@@ -237,6 +237,7 @@ model Question {
   source            QuestionSource  @default(MANUAL)
   difficulty        Difficulty      @default(MEDIUM)
   prompt            String          @db.Text
+  imageUrl          String?         @db.VarChar(2048)
   options           Json?
   answerKey         Json
   explanation       String?         @db.Text
@@ -259,27 +260,30 @@ model Question {
 }
 
 model Exam {
-  id              String        @id @default(cuid())
-  organizationId  String
-  classroomId     String
-  subjectId       String
-  createdById     String
-  title           String
-  description     String?       @db.Text
-  status          ExamStatus    @default(DRAFT)
-  isAdaptive      Boolean       @default(false)
-  durationMinutes Int?
-  availableFrom   DateTime?
-  availableUntil  DateTime?
-  maxAttempts     Int           @default(1)
-  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  classroom       Classroom     @relation(fields: [classroomId], references: [id])
-  subject         Subject       @relation(fields: [subjectId], references: [id])
-  createdBy       User          @relation("ExamCreator", fields: [createdById], references: [id])
-  items           ExamItem[]
-  attempts        ExamAttempt[]
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                 String        @id @default(cuid())
+  organizationId     String
+  classroomId        String
+  subjectId          String
+  createdById        String
+  title              String
+  description        String?       @db.Text
+  status             ExamStatus    @default(DRAFT)
+  isAdaptive         Boolean       @default(false)
+  questionCount      Int           @default(1)
+  essayQuestionCount Int?
+  questionTypeCounts Json?
+  durationMinutes    Int?
+  availableFrom      DateTime?
+  availableUntil     DateTime?
+  maxAttempts        Int           @default(1)
+  organization       Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  classroom          Classroom     @relation(fields: [classroomId], references: [id])
+  subject            Subject       @relation(fields: [subjectId], references: [id])
+  createdBy          User          @relation("ExamCreator", fields: [createdById], references: [id])
+  items              ExamItem[]
+  attempts           ExamAttempt[]
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   @@index([organizationId, status])
   @@index([classroomId])

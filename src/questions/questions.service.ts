@@ -142,6 +142,7 @@ export class QuestionsService {
         type: dto.type,
         difficulty: dto.difficulty,
         prompt: dto.prompt,
+        imageUrl: dto.imageUrl,
         options:
           dto.options === undefined
             ? undefined
@@ -290,6 +291,7 @@ export class QuestionsService {
         type: dto.type,
         difficulty: dto.difficulty,
         prompt: question.prompt,
+        imageUrl: question.imageUrl,
         options: question.options as unknown as Prisma.InputJsonValue,
         answerKey: question.answerKey as Prisma.InputJsonValue,
         explanation: question.explanation,

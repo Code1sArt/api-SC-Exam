@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -9,6 +9,7 @@ import {
   IsInt,
   IsIn,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -28,8 +29,19 @@ export class ExamItemDto {
 }
 
 export class CreateExamDto {
+  @IsOptional()
   @IsString()
-  classroomId!: string;
+  classroomId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Create the same exam for multiple classrooms at once',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  classroomIds?: string[];
 
   @IsString()
   subjectId!: string;
@@ -43,6 +55,34 @@ export class CreateExamDto {
 
   @IsBoolean()
   isAdaptive = false;
+
+  @ApiProperty({
+    description: 'Number of questions each student actually receives',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  questionCount!: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Number of essay questions randomly assigned; null/omitted assigns all selected essays',
+    nullable: true,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  essayQuestionCount?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Exact number of delivered questions for each question type',
+    type: 'object',
+    additionalProperties: { type: 'integer', minimum: 0 },
+  })
+  @IsOptional()
+  @IsObject()
+  questionTypeCounts?: Record<string, number>;
 
   @IsOptional()
   @Type(() => Number)
@@ -72,6 +112,8 @@ export class CreateExamDto {
   @Type(() => ExamItemDto)
   items!: ExamItemDto[];
 }
+
+export class UpdateExamDto extends PartialType(CreateExamDto) {}
 
 export class SubmitAnswerDto {
   @ApiProperty({ description: 'JSON response; e.g. { selectedOptionId: "A" }' })

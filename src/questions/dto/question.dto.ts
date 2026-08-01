@@ -13,7 +13,9 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUrl,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -42,6 +44,11 @@ export class CreateQuestionDto {
 
   @IsString()
   prompt!: string;
+
+  @IsOptional()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(2048)
+  imageUrl?: string | null;
 
   @ApiPropertyOptional({ type: 'array', items: { type: 'object' } })
   @IsOptional()
@@ -105,6 +112,11 @@ export class GenerateQuestionsDto {
 export class ImportQuestionItemDto {
   @IsString()
   prompt!: string;
+
+  @IsOptional()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(2048)
+  imageUrl?: string;
 
   @IsOptional()
   @IsArray()

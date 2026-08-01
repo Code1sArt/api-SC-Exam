@@ -17,6 +17,7 @@ import {
   ReportExamViolationDto,
   SetExamAvailabilityDto,
   SubmitAnswerDto,
+  UpdateExamDto,
 } from './dto/exam.dto';
 import { ExamsService } from './exams.service';
 
@@ -35,6 +36,22 @@ export class ExamsController {
   @Roles(UserRole.ADMIN, UserRole.TEACHER)
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateExamDto) {
     return this.exams.create(user, dto);
+  }
+
+  @Patch(':id')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateExamDto,
+  ) {
+    return this.exams.update(user, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.exams.remove(user, id);
   }
 
   @Post(':id/publish')

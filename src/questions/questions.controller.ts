@@ -48,7 +48,7 @@ export class QuestionsController {
       difficulty,
       search,
       page: Math.max(1, Number(page) || 1),
-      limit: Math.min(100, Math.max(1, Number(limit) || 20)),
+      limit: Math.min(500, Math.max(1, Number(limit) || 20)),
     });
   }
 
