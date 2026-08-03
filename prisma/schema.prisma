@@ -112,6 +112,7 @@ model Organization {
   questions            Question[]
   exams                Exam[]
   assignments          Assignment[]
+  playgroundProblems   PlaygroundProblem[]
   gradeScales          GradeScale[]
   aiRequests           AiRequest[]
   createdAt            DateTime         @default(now())
@@ -372,6 +373,22 @@ model AssignmentSubmissionMember {
 
   @@unique([assignmentId, studentId])
   @@index([submissionId])
+}
+
+model PlaygroundProblem {
+  id             String       @id @default(cuid())
+  organizationId String
+  title          String
+  description    String?      @db.Text
+  difficulty     Difficulty
+  driveUrl       String       @db.VarChar(2048)
+  isActive       Boolean      @default(true)
+  position       Int          @default(0)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, isActive, difficulty, position], map: "PlaygroundProblem_org_active_level_pos_idx")
 }
 
 model GradeScale {
