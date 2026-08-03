@@ -19,7 +19,25 @@ import { RecordsModule } from './records/records.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    ThrottlerModule.forRoot({
+      throttlers: [{ ttl: 60_000, limit: 120 }],
+      getTracker: (request) => {
+        const { headers, ip } = request as {
+          headers?: Record<string, string | string[] | undefined>;
+          ip?: string;
+        };
+        const authorization = headers?.authorization;
+        // Students in the same school commonly share one public IP. Once a
+        // bearer token is present, rate-limit that authenticated session rather
+        // than combining the whole classroom into the same IP quota.
+        if (
+          typeof authorization === 'string' &&
+          authorization.startsWith('Bearer ')
+        )
+          return authorization;
+        return ip ?? 'unknown';
+      },
+    }),
     PrismaModule,
     PlatformModule,
     AuthModule,
