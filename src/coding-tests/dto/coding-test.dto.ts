@@ -1,7 +1,24 @@
 import { PartialType } from '@nestjs/swagger';
 import { CodeLanguage } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUrl, Length, Max, Min, ValidateNested } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Length,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 export class CodingTestCaseDto {
   @IsString() @Length(0, 10000) input!: string;
@@ -15,8 +32,11 @@ export class CodingProblemDto {
   @IsUrl({ require_protocol: true }) @Length(1, 2048) pdfUrl!: string;
   @IsEnum(CodeLanguage) language!: CodeLanguage;
   @Type(() => Number) @IsNumber() @Min(0.01) @Max(1000) score!: number;
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50)
-  @ValidateNested({ each: true }) @Type(() => CodingTestCaseDto)
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => CodingTestCaseDto)
   testCases!: CodingTestCaseDto[];
 }
 
@@ -26,12 +46,20 @@ export class CreateCodingTestDto {
   @IsString() @Length(2, 200) title!: string;
   @IsOptional() @IsString() @Length(0, 10000) description?: string;
   @Type(() => Number) @IsInt() @Min(1) requiredCount!: number;
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(1440) durationMinutes?: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  durationMinutes?: number;
   @IsOptional() @IsDateString() availableFrom?: string;
   @IsOptional() @IsDateString() availableUntil?: string;
   @IsOptional() @IsBoolean() aiGradingEnabled?: boolean;
   @IsOptional() @IsString() @Length(1, 200) aiGradingModel?: string;
-  @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => CodingProblemDto)
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CodingProblemDto)
   problems!: CodingProblemDto[];
 }
 
@@ -43,7 +71,10 @@ export class CodingAnswerDto {
 }
 
 export class SubmitCodingTestDto {
-  @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => CodingAnswerDto)
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CodingAnswerDto)
   answers!: CodingAnswerDto[];
 }
 
@@ -59,7 +90,10 @@ export class CodingAnswerGradeDto {
 }
 
 export class GradeCodingAttemptDto {
-  @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => CodingAnswerGradeDto)
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CodingAnswerGradeDto)
   answers!: CodingAnswerGradeDto[];
 }
 
@@ -69,4 +103,6 @@ export class RunCodingTestDto {
   @IsOptional() @IsString() @Length(0, 10000) stdin?: string;
 }
 
-export class SetCodingAvailabilityDto { @IsBoolean() isOpen!: boolean; }
+export class SetCodingAvailabilityDto {
+  @IsBoolean() isOpen!: boolean;
+}

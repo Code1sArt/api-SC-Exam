@@ -16,79 +16,103 @@ export class RecordsService {
     });
     if (!student) throw new ForbiddenException('Student profile not found');
 
-    const [attempts, codingAttempts, submissions, gradeRows] = await Promise.all([
-      this.prisma.examAttempt.findMany({
-        where: {
-          studentId: student.id,
-          status: AttemptStatus.GRADED,
-          exam: { organizationId: user.organizationId },
-        },
-        select: {
-          id: true,
-          examId: true,
-          score: true,
-          maxScore: true,
-          percentage: true,
-          gradedAt: true,
-          exam: {
-            select: {
-              title: true,
-              classroom: {
-                select: {
-                  id: true,
-                  name: true,
-                  gradeLevel: true,
-                  academicYear: true,
+    const [attempts, codingAttempts, submissions, gradeRows] =
+      await Promise.all([
+        this.prisma.examAttempt.findMany({
+          where: {
+            studentId: student.id,
+            status: AttemptStatus.GRADED,
+            exam: { organizationId: user.organizationId },
+          },
+          select: {
+            id: true,
+            examId: true,
+            score: true,
+            maxScore: true,
+            percentage: true,
+            gradedAt: true,
+            exam: {
+              select: {
+                title: true,
+                classroom: {
+                  select: {
+                    id: true,
+                    name: true,
+                    gradeLevel: true,
+                    academicYear: true,
+                  },
                 },
+                subject: { select: { id: true, code: true, name: true } },
               },
-              subject: { select: { id: true, code: true, name: true } },
             },
           },
-        },
-      }),
-      this.prisma.codingTestAttempt.findMany({
-        where: { studentId: student.id, status: AttemptStatus.GRADED, codingTest: { organizationId: user.organizationId } },
-        select: { id: true, score: true, maxScore: true, gradedAt: true, codingTest: { select: { title: true, classroom: { select: { id: true, name: true, gradeLevel: true, academicYear: true } }, subject: { select: { id: true, code: true, name: true } } } } },
-      }),
-      this.prisma.assignmentSubmission.findMany({
-        where: {
-          OR: [
-            { studentId: student.id },
-            { members: { some: { studentId: student.id } } },
-          ],
-          status: SubmissionStatus.GRADED,
-          assignment: { organizationId: user.organizationId },
-        },
-        select: {
-          id: true,
-          score: true,
-          members: {
-            where: { studentId: student.id },
-            select: { score: true },
+        }),
+        this.prisma.codingTestAttempt.findMany({
+          where: {
+            studentId: student.id,
+            status: AttemptStatus.GRADED,
+            codingTest: { organizationId: user.organizationId },
           },
-          gradedAt: true,
-          assignment: {
-            select: {
-              title: true,
-              maxScore: true,
-              classroom: {
-                select: {
-                  id: true,
-                  name: true,
-                  gradeLevel: true,
-                  academicYear: true,
+          select: {
+            id: true,
+            score: true,
+            maxScore: true,
+            gradedAt: true,
+            codingTest: {
+              select: {
+                title: true,
+                classroom: {
+                  select: {
+                    id: true,
+                    name: true,
+                    gradeLevel: true,
+                    academicYear: true,
+                  },
                 },
+                subject: { select: { id: true, code: true, name: true } },
               },
-              subject: { select: { id: true, code: true, name: true } },
             },
           },
-        },
-      }),
-      this.prisma.gradeScale.findMany({
-        where: { organizationId: user.organizationId },
-        orderBy: { minPercentage: 'desc' },
-      }),
-    ]);
+        }),
+        this.prisma.assignmentSubmission.findMany({
+          where: {
+            OR: [
+              { studentId: student.id },
+              { members: { some: { studentId: student.id } } },
+            ],
+            status: SubmissionStatus.GRADED,
+            assignment: { organizationId: user.organizationId },
+          },
+          select: {
+            id: true,
+            score: true,
+            members: {
+              where: { studentId: student.id },
+              select: { score: true },
+            },
+            gradedAt: true,
+            assignment: {
+              select: {
+                title: true,
+                maxScore: true,
+                classroom: {
+                  select: {
+                    id: true,
+                    name: true,
+                    gradeLevel: true,
+                    academicYear: true,
+                  },
+                },
+                subject: { select: { id: true, code: true, name: true } },
+              },
+            },
+          },
+        }),
+        this.prisma.gradeScale.findMany({
+          where: { organizationId: user.organizationId },
+          orderBy: { minPercentage: 'desc' },
+        }),
+      ]);
     const scale = gradeRows.length
       ? gradeRows.map((row) => [row.grade, Number(row.minPercentage)] as const)
       : Object.entries(DEFAULT_GRADES);
@@ -128,7 +152,13 @@ export class RecordsService {
     }
     for (const attempt of codingAttempts) {
       const row = get(attempt.codingTest.classroom, attempt.codingTest.subject);
-      row.exams.push({ id: attempt.id, title: `${attempt.codingTest.title} · Coding Test`, score: Number(attempt.score ?? 0), maxScore: Number(attempt.maxScore ?? 0), gradedAt: attempt.gradedAt });
+      row.exams.push({
+        id: attempt.id,
+        title: `${attempt.codingTest.title} · Coding Test`,
+        score: Number(attempt.score ?? 0),
+        maxScore: Number(attempt.maxScore ?? 0),
+        gradedAt: attempt.gradedAt,
+      });
     }
     for (const submission of submissions) {
       const row = get(
@@ -244,7 +274,20 @@ export class RecordsService {
           },
           codingTests: {
             where: subjectId ? { subjectId } : undefined,
-            select: { id: true, title: true, subject: { select: { id: true, code: true, name: true } }, attempts: { where: { status: AttemptStatus.GRADED }, select: { studentId: true, score: true, maxScore: true, percentage: true } } },
+            select: {
+              id: true,
+              title: true,
+              subject: { select: { id: true, code: true, name: true } },
+              attempts: {
+                where: { status: AttemptStatus.GRADED },
+                select: {
+                  studentId: true,
+                  score: true,
+                  maxScore: true,
+                  percentage: true,
+                },
+              },
+            },
           },
         },
         orderBy: { name: 'asc' },
@@ -267,7 +310,9 @@ export class RecordsService {
         classroom.assignments.forEach((assignment) =>
           subjectMap.set(assignment.subject.id, assignment.subject),
         );
-        classroom.codingTests.forEach((test) => subjectMap.set(test.subject.id, test.subject));
+        classroom.codingTests.forEach((test) =>
+          subjectMap.set(test.subject.id, test.subject),
+        );
         return {
           classroom: {
             id: classroom.id,
@@ -307,9 +352,23 @@ export class RecordsService {
                       });
                     }
                   }
-                  for (const test of classroom.codingTests.filter((item) => item.subject.id === subject.id)) {
-                    const result = test.attempts.find((item) => item.studentId === student.id);
-                    if (result) { examScore += Number(result.score ?? 0); examMaxScore += Number(result.maxScore ?? 0); examCount += 1; examResults.push({ id: test.id, title: `${test.title} · Coding Test`, score: Number(result.score ?? 0), maxScore: Number(result.maxScore ?? 0) }); }
+                  for (const test of classroom.codingTests.filter(
+                    (item) => item.subject.id === subject.id,
+                  )) {
+                    const result = test.attempts.find(
+                      (item) => item.studentId === student.id,
+                    );
+                    if (result) {
+                      examScore += Number(result.score ?? 0);
+                      examMaxScore += Number(result.maxScore ?? 0);
+                      examCount += 1;
+                      examResults.push({
+                        id: test.id,
+                        title: `${test.title} · Coding Test`,
+                        score: Number(result.score ?? 0),
+                        maxScore: Number(result.maxScore ?? 0),
+                      });
+                    }
                   }
                   let assignmentScore = 0;
                   let assignmentMaxScore = 0;

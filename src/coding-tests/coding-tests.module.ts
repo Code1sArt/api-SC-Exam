@@ -4,5 +4,9 @@ import { AssignmentsModule } from '../assignments/assignments.module';
 import { CodingTestsController } from './coding-tests.controller';
 import { CodingTestsService } from './coding-tests.service';
 
-@Module({ imports: [AiModule, AssignmentsModule], controllers: [CodingTestsController], providers: [CodingTestsService] })
+@Module({
+  imports: [AiModule, AssignmentsModule],
+  controllers: [CodingTestsController],
+  providers: [CodingTestsService],
+})
 export class CodingTestsModule {}
