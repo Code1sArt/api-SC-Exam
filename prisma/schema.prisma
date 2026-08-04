@@ -93,6 +93,13 @@ enum GroupGradingMode {
   INDIVIDUAL
 }
 
+enum CodingGradingStatus {
+  QUEUED
+  GRADING
+  GRADED
+  FAILED
+}
+
 model Organization {
   id                   String           @id @default(cuid())
   name                 String
@@ -113,6 +120,7 @@ model Organization {
   exams                Exam[]
   assignments          Assignment[]
   playgroundProblems   PlaygroundProblem[]
+  codingTests          CodingTest[]
   gradeScales          GradeScale[]
   aiRequests           AiRequest[]
   createdAt            DateTime         @default(now())
@@ -134,6 +142,7 @@ model User {
   createdExams       Exam[]                 @relation("ExamCreator")
   createdQuestions   Question[]             @relation("QuestionCreator")
   createdAssignments Assignment[]           @relation("AssignmentCreator")
+  createdCodingTests CodingTest[]            @relation("CodingTestCreator")
   gradedSubmissions  AssignmentSubmission[] @relation("SubmissionGrader")
   aiRequests         AiRequest[]
   createdAt          DateTime               @default(now())
@@ -155,6 +164,7 @@ model StudentProfile {
   mastery                    StudentMastery[]
   assignmentSubmissions      AssignmentSubmission[]
   assignmentGroupMemberships AssignmentSubmissionMember[]
+  codingAttempts             CodingTestAttempt[]
   createdAt                  DateTime                     @default(now())
   updatedAt                  DateTime                     @updatedAt
 
@@ -174,6 +184,7 @@ model Classroom {
   enrollments    Enrollment[]
   exams          Exam[]
   assignments    Assignment[]
+  codingTests    CodingTest[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -203,6 +214,7 @@ model Subject {
   questions      Question[]
   exams          Exam[]
   assignments    Assignment[]
+  codingTests    CodingTest[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -389,6 +401,107 @@ model PlaygroundProblem {
   updatedAt      DateTime     @updatedAt
 
   @@index([organizationId, isActive, difficulty, position], map: "PlaygroundProblem_org_active_level_pos_idx")
+}
+
+model CodingTest {
+  id               String              @id @default(cuid())
+  organizationId   String
+  classroomId      String
+  subjectId        String
+  createdById      String
+  title            String
+  description      String?             @db.Text
+  status           ExamStatus          @default(DRAFT)
+  requiredCount    Int
+  durationMinutes  Int?
+  availableFrom    DateTime?
+  availableUntil   DateTime?
+  aiGradingEnabled Boolean             @default(true)
+  aiGradingModel   String?
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  classroom        Classroom           @relation(fields: [classroomId], references: [id])
+  subject          Subject             @relation(fields: [subjectId], references: [id])
+  createdBy        User                @relation("CodingTestCreator", fields: [createdById], references: [id])
+  problems         CodingTestProblem[]
+  attempts         CodingTestAttempt[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([organizationId, status])
+  @@index([classroomId, subjectId])
+}
+
+model CodingTestProblem {
+  id          String             @id @default(cuid())
+  codingTestId String
+  title       String
+  description String?            @db.Text
+  pdfUrl      String             @db.VarChar(2048)
+  language    CodeLanguage
+  score       Decimal            @db.Decimal(8, 2)
+  position    Int                @default(0)
+  codingTest  CodingTest         @relation(fields: [codingTestId], references: [id], onDelete: Cascade)
+  answers     CodingTestAnswer[]
+  testCases   CodingTestCase[]
+
+  @@unique([codingTestId, position])
+}
+
+model CodingTestCase {
+  id          String            @id @default(cuid())
+  problemId   String
+  input       String            @db.Text
+  expectedOutput String         @db.Text
+  position    Int               @default(0)
+  problem     CodingTestProblem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@unique([problemId, position])
+}
+
+model CodingTestAttempt {
+  id               String              @id @default(cuid())
+  codingTestId     String
+  studentId        String
+  status           AttemptStatus       @default(IN_PROGRESS)
+  gradingStatus    CodingGradingStatus?
+  score            Decimal?            @db.Decimal(10, 2)
+  maxScore         Decimal?            @db.Decimal(10, 2)
+  percentage       Decimal?            @db.Decimal(5, 2)
+  lockedAt         DateTime?
+  lockReason       String?
+  violationCount   Int                 @default(0)
+  lastViolationAt  DateTime?
+  gradingError     String?             @db.Text
+  startedAt        DateTime            @default(now())
+  submittedAt      DateTime?
+  gradedAt         DateTime?
+  codingTest       CodingTest          @relation(fields: [codingTestId], references: [id], onDelete: Cascade)
+  student          StudentProfile      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers          CodingTestAnswer[]
+
+  @@unique([codingTestId, studentId])
+  @@index([studentId, status])
+  @@index([gradingStatus, submittedAt])
+  @@index([lockedAt])
+}
+
+model CodingTestAnswer {
+  id          String             @id @default(cuid())
+  attemptId   String
+  problemId   String
+  sourceCode  String             @db.Text
+  score       Decimal?           @db.Decimal(8, 2)
+  feedback    String?            @db.Text
+  aiConfidence Decimal?          @db.Decimal(5, 4)
+  passedTestCases Int?
+  totalTestCases  Int?
+  testResults Json?
+  attempt     CodingTestAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  problem     CodingTestProblem  @relation(fields: [problemId], references: [id])
+  createdAt   DateTime           @default(now())
+  gradedAt    DateTime?
+
+  @@unique([attemptId, problemId])
 }
 
 model GradeScale {

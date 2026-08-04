@@ -15,6 +15,7 @@ import { PlatformModule } from './platform/platform.module';
 import { PlaygroundModule } from './playground/playground.module';
 import { QuestionsModule } from './questions/questions.module';
 import { RecordsModule } from './records/records.module';
+import { CodingTestsModule } from './coding-tests/coding-tests.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { RecordsModule } from './records/records.module';
     AssignmentsModule,
     PlaygroundModule,
     RecordsModule,
+    CodingTestsModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
