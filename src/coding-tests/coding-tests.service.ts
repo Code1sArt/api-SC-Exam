@@ -92,6 +92,13 @@ export class CodingTestsService implements OnModuleInit {
           ...problem,
           previewUrl: this.previewUrl(problem.pdfUrl),
         })),
+        attempts: row.attempts.map((attempt) => ({
+          ...attempt,
+          answers: attempt.answers.map((answer) => ({
+            ...answer,
+            feedback: this.studentFeedback(answer.feedback),
+          })),
+        })),
       }));
     }
     return this.prisma.codingTest.findMany({
@@ -399,7 +406,10 @@ export class CodingTestsService implements OnModuleInit {
       ...attempt,
       answers: attempt.answers.map(({ testResults, ...answer }) => {
         void testResults;
-        return answer;
+        return {
+          ...answer,
+          feedback: this.studentFeedback(answer.feedback),
+        };
       }),
     };
   }
@@ -571,7 +581,7 @@ export class CodingTestsService implements OnModuleInit {
           where: { id: answer.id },
           data: {
             score: itemScore,
-            feedback: `ผ่าน test case ${passedCount}/${testResults.length} ชุด — ${testCaseScore.toFixed(2)}/${testCaseMaxScore.toFixed(2)} คะแนน\nวิเคราะห์โค้ดโดย AI — ${aiReviewScore.toFixed(2)}/${aiReviewMaxScore.toFixed(2)} คะแนน\n${result.feedback}`,
+            feedback: `ผล Test case ${passedCount}/${testResults.length} ชุด — ${testCaseScore.toFixed(2)}/${testCaseMaxScore.toFixed(2)} คะแนน\nคุณภาพโค้ด — ${aiReviewScore.toFixed(2)}/${aiReviewMaxScore.toFixed(2)} คะแนน\n${result.feedback}`,
             aiConfidence: result.confidence,
             passedTestCases: passedCount,
             totalTestCases: testResults.length,
@@ -719,6 +729,12 @@ export class CodingTestsService implements OnModuleInit {
       .map((line) => line.trimEnd())
       .join('\n')
       .trim();
+  }
+  private studentFeedback(value: string | null) {
+    if (!value) return value;
+    return value
+      .replace(/วิเคราะห์โค้ดโดย\s*AI/gi, 'คุณภาพโค้ด')
+      .replace(/\bAI\b/gi, 'ระบบประเมิน');
   }
   private previewUrl(raw: string) {
     let url: URL;
