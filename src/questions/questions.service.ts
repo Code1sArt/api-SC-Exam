@@ -20,6 +20,9 @@ import {
   UpdateQuestionDto,
 } from './dto/question.dto';
 
+export const decodeImportedNewlines = (value: string) =>
+  value.replace(/\\r\\n|\\n|\\r/g, '\n');
+
 @Injectable()
 export class QuestionsService {
   constructor(
@@ -290,11 +293,17 @@ export class QuestionsService {
         source: QuestionSource.MANUAL,
         type: dto.type,
         difficulty: dto.difficulty,
-        prompt: question.prompt,
+        prompt: decodeImportedNewlines(question.prompt),
         imageUrl: question.imageUrl,
-        options: question.options as unknown as Prisma.InputJsonValue,
+        options: question.options?.map((option) => ({
+          ...option,
+          text: decodeImportedNewlines(option.text),
+        })) as unknown as Prisma.InputJsonValue,
         answerKey: question.answerKey as Prisma.InputJsonValue,
-        explanation: question.explanation,
+        explanation:
+          question.explanation === undefined
+            ? undefined
+            : decodeImportedNewlines(question.explanation),
         maxScore: question.maxScore,
         tags: question.tags,
       };
