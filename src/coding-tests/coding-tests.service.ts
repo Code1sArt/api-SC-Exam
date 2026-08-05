@@ -24,6 +24,7 @@ import {
   SubmitCodingTestDto,
   UpdateCodingTestDto,
 } from './dto/coding-test.dto';
+import { calculateCodingScoreParts, clampScore } from './coding-grading';
 
 @Injectable()
 export class CodingTestsService implements OnModuleInit {
@@ -535,8 +536,12 @@ export class CodingTestsService implements OnModuleInit {
           });
         }
         const passedCount = testResults.filter((item) => item.passed).length;
-        const testScore =
-          Number(answer.problem.score) * (passedCount / testResults.length);
+        const { testCaseScore, testCaseMaxScore, aiReviewMaxScore } =
+          calculateCodingScoreParts(
+            Number(answer.problem.score),
+            passedCount,
+            testResults.length,
+          );
         const evidence = testResults
           .map(
             (item) =>
@@ -549,23 +554,24 @@ export class CodingTestsService implements OnModuleInit {
             requestedById: attempt.student.userId,
           },
           {
-            assignment: `${answer.problem.title}\n${answer.problem.description ?? ''}\n\nผลรัน test case จริง (${passedCount}/${testResults.length} ผ่าน):\n${evidence}\n\nคะแนนสูงสุดตาม test case ที่ผ่าน: ${testScore}/${Number(answer.problem.score)} คะแนน ห้ามให้เกินคะแนนสูงสุดตาม test case`,
+            assignment: `${answer.problem.title}\n${answer.problem.description ?? ''}\n\nผลรัน test case จริง (${passedCount}/${testResults.length} ผ่าน):\n${evidence}\n\nให้ประเมินเฉพาะส่วนวิเคราะห์โค้ด คะแนนเต็ม ${aiReviewMaxScore} คะแนน แยกจากคะแนน test case ที่ระบบคำนวณแล้ว ${testCaseScore}/${testCaseMaxScore} คะแนน\nพิจารณาความถูกต้องของแนวคิดและอัลกอริทึมเป็นหลัก รวมถึง edge case และคุณภาพโค้ด หากแนวคิดถูกแต่ output ไม่ตรงแบบ exact เช่น พิมพ์คำอธิบายหรือข้อความเพิ่ม ให้คะแนนบางส่วนได้ แต่ไม่ควรได้เต็มส่วนวิเคราะห์โค้ด`,
             language: answer.problem.language,
             sourceCode: answer.sourceCode,
-            maxScore: testScore,
+            maxScore: aiReviewMaxScore,
           },
           attempt.codingTest.aiGradingModel,
         );
-        const itemScore = Math.max(
-          0,
-          Math.min(testScore, Number(result.score) || 0),
+        const aiReviewScore = clampScore(result.score, aiReviewMaxScore);
+        const itemScore = Math.min(
+          Number(answer.problem.score),
+          testCaseScore + aiReviewScore,
         );
         score += itemScore;
         await this.prisma.codingTestAnswer.update({
           where: { id: answer.id },
           data: {
             score: itemScore,
-            feedback: `ผ่าน test case ${passedCount}/${testResults.length} ชุด\n${result.feedback}`,
+            feedback: `ผ่าน test case ${passedCount}/${testResults.length} ชุด — ${testCaseScore.toFixed(2)}/${testCaseMaxScore.toFixed(2)} คะแนน\nวิเคราะห์โค้ดโดย AI — ${aiReviewScore.toFixed(2)}/${aiReviewMaxScore.toFixed(2)} คะแนน\n${result.feedback}`,
             aiConfidence: result.confidence,
             passedTestCases: passedCount,
             totalTestCases: testResults.length,
