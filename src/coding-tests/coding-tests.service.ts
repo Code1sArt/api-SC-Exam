@@ -564,7 +564,7 @@ export class CodingTestsService implements OnModuleInit {
             requestedById: attempt.student.userId,
           },
           {
-            assignment: `${answer.problem.title}\n${answer.problem.description ?? ''}\n\nผลรัน test case จริง (${passedCount}/${testResults.length} ผ่าน):\n${evidence}\n\nให้ประเมินเฉพาะส่วนวิเคราะห์โค้ด คะแนนเต็ม ${aiReviewMaxScore} คะแนน แยกจากคะแนน test case ที่ระบบคำนวณแล้ว ${testCaseScore}/${testCaseMaxScore} คะแนน\nพิจารณาความถูกต้องของแนวคิดและอัลกอริทึมเป็นหลัก รวมถึง edge case และคุณภาพโค้ด หากแนวคิดถูกแต่ output ไม่ตรงแบบ exact เช่น พิมพ์คำอธิบายหรือข้อความเพิ่ม ให้คะแนนบางส่วนได้ แต่ไม่ควรได้เต็มส่วนวิเคราะห์โค้ด`,
+            assignment: `${answer.problem.title}\n${answer.problem.description ?? ''}\n\nผลรัน test case จริง (${passedCount}/${testResults.length} ผ่าน):\n${evidence}\n\nให้ประเมินเฉพาะส่วนโครงสร้างและอัลกอริทึม คะแนนเต็ม ${aiReviewMaxScore} คะแนน แยกจากคะแนน test case ที่ระบบคำนวณแล้ว ${testCaseScore}/${testCaseMaxScore} คะแนน\nเกณฑ์ของส่วนนี้: ความถูกต้องของแนวคิดและอัลกอริทึม 2 ใน 3 และโครงสร้างลำดับการทำงาน เงื่อนไข ลูป และโครงสร้างข้อมูล 1 ใน 3\nห้ามให้หรือตัดคะแนนจากความสวยงาม การจัด format การตั้งชื่อตัวแปร ความยาวโค้ด comment หรือ coding style หากสิ่งเหล่านั้นไม่ทำให้โปรแกรมทำงานผิด\nหากแนวคิดถูกแต่ output ไม่ตรงแบบ exact เช่น พิมพ์คำอธิบายหรือข้อความเพิ่ม ให้คะแนนบางส่วนได้ แต่ไม่ควรได้เต็มส่วนโครงสร้างและอัลกอริทึม`,
             language: answer.problem.language,
             sourceCode: answer.sourceCode,
             maxScore: aiReviewMaxScore,
@@ -581,7 +581,7 @@ export class CodingTestsService implements OnModuleInit {
           where: { id: answer.id },
           data: {
             score: itemScore,
-            feedback: `ผล Test case ${passedCount}/${testResults.length} ชุด — ${testCaseScore.toFixed(2)}/${testCaseMaxScore.toFixed(2)} คะแนน\nคุณภาพโค้ด — ${aiReviewScore.toFixed(2)}/${aiReviewMaxScore.toFixed(2)} คะแนน\n${result.feedback}`,
+            feedback: `ผล Test case ${passedCount}/${testResults.length} ชุด — ${testCaseScore.toFixed(2)}/${testCaseMaxScore.toFixed(2)} คะแนน\nโครงสร้างและอัลกอริทึม — ${aiReviewScore.toFixed(2)}/${aiReviewMaxScore.toFixed(2)} คะแนน\n${result.feedback}`,
             aiConfidence: result.confidence,
             passedTestCases: passedCount,
             totalTestCases: testResults.length,
@@ -733,7 +733,8 @@ export class CodingTestsService implements OnModuleInit {
   private studentFeedback(value: string | null) {
     if (!value) return value;
     return value
-      .replace(/วิเคราะห์โค้ดโดย\s*AI/gi, 'คุณภาพโค้ด')
+      .replace(/วิเคราะห์โค้ดโดย\s*AI/gi, 'โครงสร้างและอัลกอริทึม')
+      .replace(/คุณภาพโค้ด/g, 'โครงสร้างและอัลกอริทึม')
       .replace(/\bAI\b/gi, 'ระบบประเมิน');
   }
   private previewUrl(raw: string) {
