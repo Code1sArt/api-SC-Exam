@@ -93,6 +93,17 @@ export class ExamsController {
     return this.exams.updateAttemptScore(user, id, attemptId, dto.score);
   }
 
+  @Post(':id/students/:studentId/score')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  createStudentScore(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('studentId') studentId: string,
+    @Body() dto: UpdateExamAttemptScoreDto,
+  ) {
+    return this.exams.createStudentScore(user, id, studentId, dto.score);
+  }
+
   @Post(':id/start')
   @Roles(UserRole.STUDENT)
   start(@CurrentUser() user: AuthUser, @Param('id') id: string) {

@@ -408,6 +408,87 @@ export class ExamsService {
     });
   }
 
+  async createStudentScore(
+    user: AuthUser,
+    examId: string,
+    studentId: string,
+    score: number,
+  ) {
+    const exam = await this.requireManagedExam(user, examId);
+    const student = await this.prisma.studentProfile.findFirst({
+      where: {
+        id: studentId,
+        organizationId: user.organizationId,
+        enrollments: { some: { classroomId: exam.classroomId } },
+      },
+      select: { id: true },
+    });
+    if (!student) throw new NotFoundException('Student is not in this class');
+
+    const [existingAttempt, otherResult, items] = await Promise.all([
+      this.prisma.examAttempt.findFirst({
+        where: { examId, studentId },
+        orderBy: { attemptNumber: 'desc' },
+      }),
+      this.prisma.examAttempt.findFirst({
+        where: {
+          examId,
+          status: AttemptStatus.GRADED,
+          maxScore: { not: null },
+        },
+        select: { maxScore: true },
+        orderBy: { gradedAt: 'desc' },
+      }),
+      this.prisma.examItem.findMany({
+        where: { examId },
+        select: { score: true },
+        orderBy: { position: 'asc' },
+        take: exam.questionCount,
+      }),
+    ]);
+    if (existingAttempt?.status === AttemptStatus.GRADED) {
+      throw new BadRequestException('The student already has an exam result');
+    }
+    const maxScore = Number(
+      exam.resultMaxScore ??
+        otherResult?.maxScore ??
+        items.reduce((sum, item) => sum + Number(item.score), 0),
+    );
+    if (!maxScore) {
+      throw new BadRequestException('The exam result has no maximum score');
+    }
+    if (score > maxScore) {
+      throw new BadRequestException(`Score must be between 0 and ${maxScore}`);
+    }
+    const now = new Date();
+    const data = {
+      status: AttemptStatus.GRADED,
+      score: this.roundScore(score),
+      maxScore,
+      percentage: this.roundPercentage((score / maxScore) * 100),
+      aiReport: Prisma.DbNull,
+      submittedAt: now,
+      gradedAt: now,
+      lockedAt: null,
+      lockReason: null,
+    };
+    if (existingAttempt) {
+      return this.prisma.examAttempt.update({
+        where: { id: existingAttempt.id },
+        data,
+      });
+    }
+    return this.prisma.examAttempt.create({
+      data: {
+        examId,
+        studentId,
+        attemptNumber: 1,
+        startedAt: now,
+        ...data,
+      },
+    });
+  }
+
   async resetAttempt(user: AuthUser, examId: string, attemptId: string) {
     const exam = await this.requireManagedExam(user, examId);
     const selectedAttempt = await this.prisma.examAttempt.findFirst({

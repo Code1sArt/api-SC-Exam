@@ -137,8 +137,30 @@ export class AnalyticsService {
         ...(user.role === UserRole.TEACHER ? { createdById: user.sub } : {}),
       },
       include: {
-        classroom: { select: { name: true } },
+        classroom: {
+          select: {
+            name: true,
+            enrollments: {
+              where: { student: { user: { isActive: true } } },
+              select: {
+                student: {
+                  select: {
+                    id: true,
+                    studentCode: true,
+                    user: { select: { firstName: true, lastName: true } },
+                  },
+                },
+              },
+              orderBy: { student: { studentCode: 'asc' } },
+            },
+          },
+        },
         subject: { select: { name: true } },
+        items: {
+          select: { score: true },
+          orderBy: { position: 'asc' },
+          take: 1000,
+        },
         attempts: {
           where: { status: AttemptStatus.GRADED },
           include: {
@@ -181,22 +203,48 @@ export class AnalyticsService {
       }
     }
 
+    const maxScore =
+      exam.resultMaxScore ??
+      exam.attempts[0]?.maxScore ??
+      exam.items
+        .slice(0, exam.questionCount)
+        .reduce((sum, item) => sum + Number(item.score), 0);
+    const studentsWithResults = new Set(
+      exam.attempts.map((attempt) => attempt.studentId),
+    );
+    const studentsWithoutResults = exam.classroom.enrollments
+      .map((enrollment) => enrollment.student)
+      .filter((student) => !studentsWithResults.has(student.id));
+
     return {
       id: exam.id,
       title: exam.title,
       classroom: exam.classroom.name,
       subject: exam.subject.name,
-      maxScore: exam.resultMaxScore ?? exam.attempts[0]?.maxScore ?? null,
+      maxScore,
       distribution,
-      students: exam.attempts.map((attempt) => ({
-        attemptId: attempt.id,
-        studentCode: attempt.student.studentCode,
-        name: `${attempt.student.user.firstName} ${attempt.student.user.lastName}`,
-        score: attempt.score,
-        maxScore: attempt.maxScore,
-        percentage: attempt.percentage,
-        aiReport: attempt.aiReport,
-      })),
+      students: [
+        ...exam.attempts.map((attempt) => ({
+          studentId: attempt.studentId,
+          attemptId: attempt.id,
+          studentCode: attempt.student.studentCode,
+          name: `${attempt.student.user.firstName} ${attempt.student.user.lastName}`,
+          score: attempt.score,
+          maxScore: attempt.maxScore,
+          percentage: attempt.percentage,
+          aiReport: attempt.aiReport,
+        })),
+        ...studentsWithoutResults.map((student) => ({
+          studentId: student.id,
+          attemptId: null as string | null,
+          studentCode: student.studentCode,
+          name: `${student.user.firstName} ${student.user.lastName}`,
+          score: null,
+          maxScore,
+          percentage: null,
+          aiReport: null,
+        })),
+      ],
       questions: Array.from(questionStats.entries()).map(
         ([questionId, value]) => ({
           questionId,
