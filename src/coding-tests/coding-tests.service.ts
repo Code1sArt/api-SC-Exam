@@ -491,9 +491,7 @@ export class CodingTestsService implements OnModuleInit {
           score: rawMaxScore
             ? (rawScore / rawMaxScore) * Number(attempt.codingTest.fullScore)
             : 0,
-          percentage: rawMaxScore
-            ? (rawScore / rawMaxScore) * 100
-            : 0,
+          percentage: rawMaxScore ? (rawScore / rawMaxScore) * 100 : 0,
           gradedAt: new Date(),
           gradingError: null,
         },
@@ -610,7 +608,8 @@ export class CodingTestsService implements OnModuleInit {
             ? (rawScore / rawMaxScore) * Number(attempt.codingTest.fullScore)
             : 0,
           percentage: attempt.maxScore
-            ? ((rawScore / rawMaxScore) * Number(attempt.codingTest.fullScore) /
+            ? (((rawScore / rawMaxScore) *
+                Number(attempt.codingTest.fullScore)) /
                 Number(attempt.maxScore)) *
               100
             : 0,
