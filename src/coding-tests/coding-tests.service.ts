@@ -326,10 +326,10 @@ export class CodingTestsService implements OnModuleInit {
     const unique = new Set(dto.answers.map((answer) => answer.problemId));
     if (
       unique.size !== dto.answers.length ||
-      dto.answers.length !== attempt.codingTest.requiredCount
+      dto.answers.length < attempt.codingTest.requiredCount
     )
       throw new BadRequestException(
-        `ต้องเลือกทำและส่งให้ครบ ${attempt.codingTest.requiredCount} ข้อ`,
+        `ต้องทำและส่งอย่างน้อย ${attempt.codingTest.requiredCount} ข้อ`,
       );
     const problems = attempt.codingTest.problems.filter((p) =>
       unique.has(p.id),
@@ -648,7 +648,7 @@ export class CodingTestsService implements OnModuleInit {
   ) {
     if (dto.requiredCount > dto.problems.length)
       throw new BadRequestException(
-        'จำนวนข้อที่ต้องทำต้องไม่เกินจำนวนโจทย์ทั้งหมด',
+        'จำนวนข้อขั้นต่ำต้องไม่เกินจำนวนโจทย์ทั้งหมด',
       );
     dto.problems.forEach((problem) => {
       this.previewUrl(problem.pdfUrl);
