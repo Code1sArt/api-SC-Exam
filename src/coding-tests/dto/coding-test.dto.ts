@@ -46,6 +46,7 @@ export class CreateCodingTestDto {
   @IsString() @Length(2, 200) title!: string;
   @IsOptional() @IsString() @Length(0, 10000) description?: string;
   @Type(() => Number) @IsInt() @Min(1) requiredCount!: number;
+  @Type(() => Number) @IsNumber() @Min(0.01) @Max(100000) fullScore!: number;
   @IsOptional()
   @Type(() => Number)
   @IsInt()

@@ -414,6 +414,7 @@ model CodingTest {
   description      String?             @db.Text
   status           ExamStatus          @default(DRAFT)
   requiredCount    Int
+  fullScore        Decimal             @default(10) @db.Decimal(8, 2)
   durationMinutes  Int?
   availableFrom    DateTime?
   availableUntil   DateTime?

@@ -144,6 +144,7 @@ export class CodingTestsService implements OnModuleInit {
         title: dto.title.trim(),
         description: dto.description?.trim() || null,
         requiredCount: dto.requiredCount,
+        fullScore: dto.fullScore,
         durationMinutes: dto.durationMinutes,
         availableFrom: dto.availableFrom ? new Date(dto.availableFrom) : null,
         availableUntil: dto.availableUntil
@@ -189,6 +190,7 @@ export class CodingTestsService implements OnModuleInit {
       classroomId: dto.classroomId ?? current.classroomId,
       subjectId: dto.subjectId ?? current.subjectId,
       requiredCount: dto.requiredCount ?? current.requiredCount,
+      fullScore: dto.fullScore ?? current.fullScore,
       problems: dto.problems ?? current.problems,
     };
     await this.validate(user, merged);
@@ -226,6 +228,7 @@ export class CodingTestsService implements OnModuleInit {
               ? undefined
               : dto.description.trim() || null,
           requiredCount: dto.requiredCount,
+          fullScore: dto.fullScore,
           durationMinutes: dto.durationMinutes,
           availableFrom: dto.availableFrom
             ? new Date(dto.availableFrom)
@@ -340,10 +343,7 @@ export class CodingTestsService implements OnModuleInit {
       throw new BadRequestException(
         'โจทย์ยังไม่มี test case กรุณาแจ้งครูผู้สอน',
       );
-    const maxScore = problems.reduce(
-      (sum, problem) => sum + Number(problem.score),
-      0,
-    );
+    const maxScore = Number(attempt.codingTest.fullScore);
     const queued = attempt.codingTest.aiGradingEnabled;
     await this.prisma.$transaction(async (tx) => {
       await tx.codingTestAnswer.createMany({
@@ -395,6 +395,7 @@ export class CodingTestsService implements OnModuleInit {
             id: true,
             title: true,
             requiredCount: true,
+            fullScore: true,
             aiGradingEnabled: true,
           },
         },
@@ -462,13 +463,17 @@ export class CodingTestsService implements OnModuleInit {
     );
     if (dto.answers.length !== attempt.answers.length)
       throw new BadRequestException('กรุณาให้คะแนนทุกข้อที่ส่ง');
-    let score = 0;
+    let rawScore = 0;
+    const rawMaxScore = attempt.answers.reduce(
+      (sum, answer) => sum + Number(answer.problem.score),
+      0,
+    );
     await this.prisma.$transaction(async (tx) => {
       for (const item of dto.answers) {
         const answer = answerMap.get(item.answerId);
         if (!answer || item.score > Number(answer.problem.score))
           throw new BadRequestException('คะแนนรายข้อไม่ถูกต้อง');
-        score += item.score;
+        rawScore += item.score;
         await tx.codingTestAnswer.update({
           where: { id: item.answerId },
           data: {
@@ -483,9 +488,11 @@ export class CodingTestsService implements OnModuleInit {
         data: {
           status: AttemptStatus.GRADED,
           gradingStatus: CodingGradingStatus.GRADED,
-          score,
-          percentage: attempt.maxScore
-            ? (score / Number(attempt.maxScore)) * 100
+          score: rawMaxScore
+            ? (rawScore / rawMaxScore) * Number(attempt.codingTest.fullScore)
+            : 0,
+          percentage: rawMaxScore
+            ? (rawScore / rawMaxScore) * 100
             : 0,
           gradedAt: new Date(),
           gradingError: null,
@@ -516,7 +523,11 @@ export class CodingTestsService implements OnModuleInit {
           },
         },
       });
-      let score = 0;
+      let rawScore = 0;
+      const rawMaxScore = attempt.answers.reduce(
+        (sum, answer) => sum + Number(answer.problem.score),
+        0,
+      );
       for (const answer of attempt.answers) {
         const testResults = [];
         for (const testCase of answer.problem.testCases) {
@@ -576,7 +587,7 @@ export class CodingTestsService implements OnModuleInit {
           Number(answer.problem.score),
           testCaseScore + aiReviewScore,
         );
-        score += itemScore;
+        rawScore += itemScore;
         await this.prisma.codingTestAnswer.update({
           where: { id: answer.id },
           data: {
@@ -595,9 +606,13 @@ export class CodingTestsService implements OnModuleInit {
         data: {
           status: AttemptStatus.GRADED,
           gradingStatus: CodingGradingStatus.GRADED,
-          score,
+          score: rawMaxScore
+            ? (rawScore / rawMaxScore) * Number(attempt.codingTest.fullScore)
+            : 0,
           percentage: attempt.maxScore
-            ? (score / Number(attempt.maxScore)) * 100
+            ? ((rawScore / rawMaxScore) * Number(attempt.codingTest.fullScore) /
+                Number(attempt.maxScore)) *
+              100
             : 0,
           gradedAt: new Date(),
           gradingError: null,
