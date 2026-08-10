@@ -127,6 +127,22 @@ export class SetExamAvailabilityDto {
   isOpen!: boolean;
 }
 
+export class UpdateExamResultMaxScoreDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  @Max(100000)
+  maxScore!: number;
+}
+
+export class UpdateExamAttemptScoreDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100000)
+  score!: number;
+}
+
 export const EXAM_VIOLATION_TYPES = [
   'TAB_HIDDEN',
   'WINDOW_BLUR',

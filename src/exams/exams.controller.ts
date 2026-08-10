@@ -17,7 +17,9 @@ import {
   ReportExamViolationDto,
   SetExamAvailabilityDto,
   SubmitAnswerDto,
+  UpdateExamAttemptScoreDto,
   UpdateExamDto,
+  UpdateExamResultMaxScoreDto,
 } from './dto/exam.dto';
 import { ExamsService } from './exams.service';
 
@@ -70,6 +72,27 @@ export class ExamsController {
     return this.exams.setAvailability(user, id, dto.isOpen);
   }
 
+  @Patch(':id/result-max-score')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  updateResultMaxScore(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateExamResultMaxScoreDto,
+  ) {
+    return this.exams.updateResultMaxScore(user, id, dto.maxScore);
+  }
+
+  @Patch(':id/attempts/:attemptId/score')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  updateAttemptScore(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('attemptId') attemptId: string,
+    @Body() dto: UpdateExamAttemptScoreDto,
+  ) {
+    return this.exams.updateAttemptScore(user, id, attemptId, dto.score);
+  }
+
   @Post(':id/start')
   @Roles(UserRole.STUDENT)
   start(@CurrentUser() user: AuthUser, @Param('id') id: string) {
@@ -84,6 +107,21 @@ export class ExamsController {
     @Param('attemptId') attemptId: string,
   ) {
     return this.exams.resetAttempt(user, id, attemptId);
+  }
+
+  @Get('reset-attempts')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  resetAttempts(@CurrentUser() user: AuthUser) {
+    return this.exams.resetAttempts(user);
+  }
+
+  @Post('reset-attempts/:archiveId/restore')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  restoreResetAttempt(
+    @CurrentUser() user: AuthUser,
+    @Param('archiveId') archiveId: string,
+  ) {
+    return this.exams.restoreResetAttempt(user, archiveId);
   }
 
   @Get('attempts/:attemptId/next')

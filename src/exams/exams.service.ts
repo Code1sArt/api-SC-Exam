@@ -21,6 +21,41 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AdaptiveService, DIFFICULTY_LEVELS } from './adaptive.service';
 import { CreateExamDto, SubmitAnswerDto, UpdateExamDto } from './dto/exam.dto';
 
+type ResetAttemptSnapshot = {
+  attempts: Array<{
+    id: string;
+    examId: string;
+    studentId: string;
+    attemptNumber: number;
+    status: AttemptStatus;
+    currentDifficulty: Difficulty;
+    correctStreak: number;
+    incorrectStreak: number;
+    score: string | null;
+    maxScore: string | null;
+    percentage: string | null;
+    aiReport: Prisma.JsonValue | null;
+    lockedAt: string | null;
+    lockReason: string | null;
+    violationCount: number;
+    lastViolationAt: string | null;
+    startedAt: string;
+    submittedAt: string | null;
+    gradedAt: string | null;
+    answers: Array<{
+      id: string;
+      questionId: string;
+      response: Prisma.JsonValue;
+      score: string | null;
+      isCorrect: boolean | null;
+      aiFeedback: string | null;
+      aiConfidence: string | null;
+      answeredAt: string;
+      gradedAt: string | null;
+    }>;
+  }>;
+};
+
 @Injectable()
 export class ExamsService {
   constructor(
@@ -300,8 +335,81 @@ export class ExamsService {
     });
   }
 
+  async updateResultMaxScore(user: AuthUser, examId: string, maxScore: number) {
+    const exam = await this.requireManagedExam(user, examId);
+    const attempts = await this.prisma.examAttempt.findMany({
+      where: { examId, status: AttemptStatus.GRADED },
+      select: { id: true, score: true, maxScore: true, percentage: true },
+    });
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.exam.update({
+        where: { id: exam.id },
+        data: { resultMaxScore: maxScore },
+      });
+      for (const attempt of attempts) {
+        const previousMax = Number(attempt.maxScore ?? 0);
+        const percentage =
+          attempt.percentage === null
+            ? previousMax
+              ? (Number(attempt.score ?? 0) / previousMax) * 100
+              : 0
+            : Number(attempt.percentage);
+        const scaledScore = this.roundScore((percentage / 100) * maxScore);
+        await tx.examAttempt.update({
+          where: { id: attempt.id },
+          data: {
+            score: scaledScore,
+            maxScore,
+            percentage: this.roundPercentage(percentage),
+          },
+        });
+      }
+    });
+
+    return { examId, maxScore, updatedAttempts: attempts.length };
+  }
+
+  async updateAttemptScore(
+    user: AuthUser,
+    examId: string,
+    attemptId: string,
+    score: number,
+  ) {
+    const exam = await this.requireManagedExam(user, examId);
+    const attempt = await this.prisma.examAttempt.findFirst({
+      where: { id: attemptId, examId, status: AttemptStatus.GRADED },
+      select: { id: true, maxScore: true },
+    });
+    if (!attempt) throw new NotFoundException('Graded attempt not found');
+    const maxScore = Number(attempt.maxScore ?? exam.resultMaxScore ?? 0);
+    if (!maxScore) {
+      throw new BadRequestException('The exam result has no maximum score');
+    }
+    if (score > maxScore) {
+      throw new BadRequestException(`Score must be between 0 and ${maxScore}`);
+    }
+    return this.prisma.examAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        score: this.roundScore(score),
+        maxScore,
+        percentage: this.roundPercentage((score / maxScore) * 100),
+        aiReport: Prisma.DbNull,
+        gradedAt: new Date(),
+      },
+      select: {
+        id: true,
+        score: true,
+        maxScore: true,
+        percentage: true,
+        gradedAt: true,
+      },
+    });
+  }
+
   async resetAttempt(user: AuthUser, examId: string, attemptId: string) {
-    await this.requireManagedExam(user, examId);
+    const exam = await this.requireManagedExam(user, examId);
     const selectedAttempt = await this.prisma.examAttempt.findFirst({
       where: { id: attemptId, examId },
       select: { studentId: true },
@@ -310,12 +418,29 @@ export class ExamsService {
 
     const attemptsToDelete = await this.prisma.examAttempt.findMany({
       where: { examId, studentId: selectedAttempt.studentId },
-      select: {
+      include: {
         answers: {
-          select: { question: { select: { indicatorId: true } } },
+          include: { question: { select: { indicatorId: true } } },
+          orderBy: { answeredAt: 'asc' },
         },
       },
+      orderBy: { attemptNumber: 'asc' },
     });
+    const [student, resetBy] = await Promise.all([
+      this.prisma.studentProfile.findUnique({
+        where: { id: selectedAttempt.studentId },
+        select: {
+          studentCode: true,
+          user: { select: { firstName: true, lastName: true } },
+        },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: user.sub },
+        select: { firstName: true, lastName: true },
+      }),
+    ]);
+    if (!student) throw new NotFoundException('Student not found');
+
     const indicatorIds = [
       ...new Set(
         attemptsToDelete
@@ -325,43 +450,42 @@ export class ExamsService {
       ),
     ];
 
+    const snapshot = JSON.parse(
+      JSON.stringify({
+        attempts: attemptsToDelete.map(({ answers, ...attempt }) => ({
+          ...attempt,
+          answers: answers.map(({ question, ...answer }) => {
+            void question;
+            return answer;
+          }),
+        })),
+      }),
+    ) as Prisma.InputJsonValue;
+
     const deletedCount = await this.prisma.$transaction(async (tx) => {
+      await tx.examAttemptResetArchive.create({
+        data: {
+          organizationId: exam.organizationId,
+          examId,
+          examCreatedById: exam.createdById,
+          studentId: selectedAttempt.studentId,
+          resetById: user.sub,
+          resetByName: resetBy
+            ? `${resetBy.firstName} ${resetBy.lastName}`.trim()
+            : user.sub,
+          examTitle: exam.title,
+          studentCode: student.studentCode,
+          studentName:
+            `${student.user.firstName} ${student.user.lastName}`.trim(),
+          attemptCount: attemptsToDelete.length,
+          snapshot,
+        },
+      });
       const deleted = await tx.examAttempt.deleteMany({
         where: { examId, studentId: selectedAttempt.studentId },
       });
 
-      if (indicatorIds.length) {
-        await tx.studentMastery.deleteMany({
-          where: {
-            studentId: selectedAttempt.studentId,
-            indicatorId: { in: indicatorIds },
-          },
-        });
-        const remainingAnswers = await tx.attemptAnswer.findMany({
-          where: {
-            attempt: { studentId: selectedAttempt.studentId },
-            question: { indicatorId: { in: indicatorIds } },
-          },
-          select: {
-            isCorrect: true,
-            question: {
-              select: { indicatorId: true, difficulty: true },
-            },
-          },
-          orderBy: { answeredAt: 'asc' },
-        });
-        for (const answer of remainingAnswers) {
-          if (!answer.question.indicatorId || answer.isCorrect === null)
-            continue;
-          await this.updateMastery(
-            tx,
-            selectedAttempt.studentId,
-            answer.question.indicatorId,
-            answer.isCorrect,
-            answer.question.difficulty,
-          );
-        }
-      }
+      await this.rebuildMastery(tx, selectedAttempt.studentId, indicatorIds);
       return deleted.count;
     });
 
@@ -369,6 +493,156 @@ export class ExamsService {
       examId,
       studentId: selectedAttempt.studentId,
       deletedAttempts: deletedCount,
+    };
+  }
+
+  async resetAttempts(user: AuthUser) {
+    return this.prisma.examAttemptResetArchive.findMany({
+      where: {
+        organizationId: user.organizationId,
+        restoredAt: null,
+        ...(user.role === UserRole.TEACHER
+          ? { examCreatedById: user.sub }
+          : {}),
+      },
+      select: {
+        id: true,
+        examId: true,
+        studentId: true,
+        resetByName: true,
+        examTitle: true,
+        studentCode: true,
+        studentName: true,
+        attemptCount: true,
+        resetAt: true,
+      },
+      orderBy: { resetAt: 'desc' },
+    });
+  }
+
+  async restoreResetAttempt(user: AuthUser, archiveId: string) {
+    const archive = await this.prisma.examAttemptResetArchive.findFirst({
+      where: {
+        id: archiveId,
+        organizationId: user.organizationId,
+        restoredAt: null,
+        ...(user.role === UserRole.TEACHER
+          ? { examCreatedById: user.sub }
+          : {}),
+      },
+    });
+    if (!archive) throw new NotFoundException('Reset result not found');
+    await this.requireManagedExam(user, archive.examId);
+
+    const snapshot = archive.snapshot as unknown as ResetAttemptSnapshot;
+    if (!Array.isArray(snapshot?.attempts) || !snapshot.attempts.length) {
+      throw new BadRequestException('Reset snapshot is invalid');
+    }
+    if (
+      snapshot.attempts.some(
+        (attempt) =>
+          attempt.examId !== archive.examId ||
+          attempt.studentId !== archive.studentId,
+      )
+    ) {
+      throw new BadRequestException(
+        'Reset snapshot does not match this result',
+      );
+    }
+
+    const replacementCount = await this.prisma.examAttempt.count({
+      where: { examId: archive.examId, studentId: archive.studentId },
+    });
+    if (replacementCount) {
+      throw new BadRequestException(
+        'The student already has a new attempt; remove it before restoring this result',
+      );
+    }
+
+    const questionIds = [
+      ...new Set(
+        snapshot.attempts.flatMap((attempt) =>
+          attempt.answers.map((answer) => answer.questionId),
+        ),
+      ),
+    ];
+    const questions = questionIds.length
+      ? await this.prisma.question.findMany({
+          where: { id: { in: questionIds } },
+          select: { id: true, indicatorId: true },
+        })
+      : [];
+    if (questions.length !== questionIds.length) {
+      throw new BadRequestException(
+        'One or more questions in this result no longer exist',
+      );
+    }
+    const indicatorIds = [
+      ...new Set(
+        questions
+          .map((question) => question.indicatorId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const attempt of snapshot.attempts) {
+        await tx.examAttempt.create({
+          data: {
+            id: attempt.id,
+            examId: attempt.examId,
+            studentId: attempt.studentId,
+            attemptNumber: attempt.attemptNumber,
+            status: attempt.status,
+            currentDifficulty: attempt.currentDifficulty,
+            correctStreak: attempt.correctStreak,
+            incorrectStreak: attempt.incorrectStreak,
+            score: attempt.score,
+            maxScore: attempt.maxScore,
+            percentage: attempt.percentage,
+            aiReport:
+              attempt.aiReport === null
+                ? undefined
+                : (attempt.aiReport as Prisma.InputJsonValue),
+            lockedAt: attempt.lockedAt ? new Date(attempt.lockedAt) : null,
+            lockReason: attempt.lockReason,
+            violationCount: attempt.violationCount,
+            lastViolationAt: attempt.lastViolationAt
+              ? new Date(attempt.lastViolationAt)
+              : null,
+            startedAt: new Date(attempt.startedAt),
+            submittedAt: attempt.submittedAt
+              ? new Date(attempt.submittedAt)
+              : null,
+            gradedAt: attempt.gradedAt ? new Date(attempt.gradedAt) : null,
+            answers: {
+              create: attempt.answers.map((answer) => ({
+                id: answer.id,
+                questionId: answer.questionId,
+                response: answer.response as Prisma.InputJsonValue,
+                score: answer.score,
+                isCorrect: answer.isCorrect,
+                aiFeedback: answer.aiFeedback,
+                aiConfidence: answer.aiConfidence,
+                answeredAt: new Date(answer.answeredAt),
+                gradedAt: answer.gradedAt ? new Date(answer.gradedAt) : null,
+              })),
+            },
+          },
+        });
+      }
+      await this.rebuildMastery(tx, archive.studentId, indicatorIds);
+      await tx.examAttemptResetArchive.update({
+        where: { id: archive.id },
+        data: { restoredAt: new Date(), restoredById: user.sub },
+      });
+    });
+
+    return {
+      id: archive.id,
+      examId: archive.examId,
+      studentId: archive.studentId,
+      restoredAttempts: snapshot.attempts.length,
     };
   }
 
@@ -642,15 +916,19 @@ export class ExamsService {
     if (attempt.status !== AttemptStatus.IN_PROGRESS)
       throw new BadRequestException('Attempt has already been submitted');
     this.assertAttemptUnlocked(attempt);
-    const score = attempt.answers.reduce(
+    const rawScore = attempt.answers.reduce(
       (total, answer) => total + Number(answer.score ?? 0),
       0,
     );
-    const maxScore = this.plannedItems(attempt).reduce(
+    const rawMaxScore = this.plannedItems(attempt).reduce(
       (total, item) => total + Number(item.score),
       0,
     );
-    const percentage = maxScore ? (score / maxScore) * 100 : 0;
+    const percentage = rawMaxScore ? (rawScore / rawMaxScore) * 100 : 0;
+    const maxScore = Number(attempt.exam.resultMaxScore ?? rawMaxScore);
+    const score = attempt.exam.resultMaxScore
+      ? this.roundScore((percentage / 100) * maxScore)
+      : rawScore;
     const summary = {
       score,
       maxScore,
@@ -912,6 +1190,38 @@ export class ExamsService {
       );
     }
     return this.normalize(expected) === this.normalize(actual);
+  }
+
+  private async rebuildMastery(
+    tx: Prisma.TransactionClient,
+    studentId: string,
+    indicatorIds: string[],
+  ) {
+    if (!indicatorIds.length) return;
+    await tx.studentMastery.deleteMany({
+      where: { studentId, indicatorId: { in: indicatorIds } },
+    });
+    const answers = await tx.attemptAnswer.findMany({
+      where: {
+        attempt: { studentId },
+        question: { indicatorId: { in: indicatorIds } },
+      },
+      select: {
+        isCorrect: true,
+        question: { select: { indicatorId: true, difficulty: true } },
+      },
+      orderBy: { answeredAt: 'asc' },
+    });
+    for (const answer of answers) {
+      if (!answer.question.indicatorId || answer.isCorrect === null) continue;
+      await this.updateMastery(
+        tx,
+        studentId,
+        answer.question.indicatorId,
+        answer.isCorrect,
+        answer.question.difficulty,
+      );
+    }
   }
 
   private async updateMastery(
@@ -1292,6 +1602,14 @@ export class ExamsService {
     )
       return '';
     return String(value).trim().toLocaleLowerCase('th-TH');
+  }
+
+  private roundScore(value: number) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
+  private roundPercentage(value: number) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
   }
 
   private clamp(value: unknown) {

@@ -186,6 +186,7 @@ export class AnalyticsService {
       title: exam.title,
       classroom: exam.classroom.name,
       subject: exam.subject.name,
+      maxScore: exam.resultMaxScore ?? exam.attempts[0]?.maxScore ?? null,
       distribution,
       students: exam.attempts.map((attempt) => ({
         attemptId: attempt.id,

@@ -289,6 +289,7 @@ model Exam {
   availableFrom      DateTime?
   availableUntil     DateTime?
   maxAttempts        Int           @default(1)
+  resultMaxScore     Decimal?      @db.Decimal(10, 2)
   organization       Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   classroom          Classroom     @relation(fields: [classroomId], references: [id])
   subject            Subject       @relation(fields: [subjectId], references: [id])
@@ -541,6 +542,28 @@ model ExamAttempt {
   @@unique([examId, studentId, attemptNumber])
   @@index([studentId, status])
   @@index([lockedAt])
+}
+
+model ExamAttemptResetArchive {
+  id              String   @id @default(cuid())
+  organizationId  String
+  examId          String
+  examCreatedById String
+  studentId       String
+  resetById       String
+  resetByName     String
+  examTitle       String
+  studentCode     String
+  studentName     String
+  attemptCount    Int
+  snapshot        Json
+  resetAt         DateTime @default(now())
+  restoredAt      DateTime?
+  restoredById    String?
+
+  @@index([organizationId, restoredAt, resetAt])
+  @@index([examCreatedById, restoredAt])
+  @@index([examId, studentId])
 }
 
 model AttemptAnswer {
