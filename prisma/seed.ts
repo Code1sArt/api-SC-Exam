@@ -88,23 +88,25 @@ async function main() {
       gradeLevel: 'ม.1',
     },
   });
-  const classroom = await prisma.classroom.upsert({
+  const existingClassroom = await prisma.classroom.findFirst({
     where: {
-      organizationId_name_academicYear: {
-        organizationId: organization.id,
-        name: 'ม.1/1',
-        academicYear: '2569',
-      },
-    },
-    update: {},
-    create: {
       organizationId: organization.id,
-      teacherId: teacher.id,
       name: 'ม.1/1',
-      gradeLevel: 'ม.1',
       academicYear: '2569',
+      isActive: true,
     },
   });
+  const classroom =
+    existingClassroom ??
+    (await prisma.classroom.create({
+      data: {
+        organizationId: organization.id,
+        teacherId: teacher.id,
+        name: 'ม.1/1',
+        gradeLevel: 'ม.1',
+        academicYear: '2569',
+      },
+    }));
   if (student.studentProfile) {
     await prisma.enrollment.upsert({
       where: {
