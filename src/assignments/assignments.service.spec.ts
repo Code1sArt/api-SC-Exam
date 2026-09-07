@@ -98,3 +98,37 @@ describe('AssignmentsService classroom grading', () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 });
+
+describe('AssignmentsService removal', () => {
+  const user: AuthUser = {
+    sub: 'teacher-1',
+    organizationId: 'org-1',
+    role: UserRole.TEACHER,
+    email: 'teacher@example.com',
+  };
+
+  it('deletes an assignment and lets the database cascade its submissions and grades', async () => {
+    const remove = jest.fn().mockResolvedValue({ id: 'assignment-1' });
+    const prisma = {
+      assignment: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'assignment-1',
+          organizationId: 'org-1',
+          createdById: 'teacher-1',
+        }),
+        delete: remove,
+      },
+    } as unknown as PrismaService;
+    const service = new AssignmentsService(
+      prisma,
+      {} as AiService,
+      {} as CodeRunnerService,
+    );
+
+    await expect(service.remove(user, 'assignment-1')).resolves.toEqual({
+      deleted: true,
+      id: 'assignment-1',
+    });
+    expect(remove).toHaveBeenCalledWith({ where: { id: 'assignment-1' } });
+  });
+});

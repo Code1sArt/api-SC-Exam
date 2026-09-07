@@ -277,11 +277,6 @@ export class AssignmentsService {
 
   async remove(user: AuthUser, id: string) {
     const assignment = await this.managed(user, id);
-    const count = await this.prisma.assignmentSubmission.count({
-      where: { assignmentId: id },
-    });
-    if (count)
-      throw new BadRequestException('ไม่สามารถลบงานที่มีนักเรียนส่งแล้วได้');
     await this.prisma.assignment.delete({ where: { id: assignment.id } });
     return { deleted: true, id };
   }
