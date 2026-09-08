@@ -1,0 +1,1 @@
+ALTER TABLE `Assignment` ADD COLUMN `resourceUrl` VARCHAR(2048) NULL;
