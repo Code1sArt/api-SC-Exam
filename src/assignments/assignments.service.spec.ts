@@ -132,3 +132,63 @@ describe('AssignmentsService removal', () => {
     expect(remove).toHaveBeenCalledWith({ where: { id: 'assignment-1' } });
   });
 });
+
+describe('AssignmentsService score reset', () => {
+  const user: AuthUser = {
+    sub: 'teacher-1',
+    organizationId: 'org-1',
+    role: UserRole.TEACHER,
+    email: 'teacher@example.com',
+  };
+
+  it('clears an individual score while preserving the submission', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'submission-1' });
+    const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+    const transaction = jest.fn(
+      async (
+        callback: (tx: {
+          assignmentSubmission: { update: typeof update };
+          assignmentSubmissionMember: { updateMany: typeof updateMany };
+        }) => Promise<unknown>,
+      ) =>
+        await callback({
+          assignmentSubmission: { update },
+          assignmentSubmissionMember: { updateMany },
+        }),
+    );
+    const prisma = {
+      assignment: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'assignment-1',
+          organizationId: 'org-1',
+          createdById: 'teacher-1',
+          isGroupWork: false,
+        }),
+      },
+      assignmentSubmission: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'submission-1' }),
+      },
+      $transaction: transaction,
+    } as unknown as PrismaService;
+    const service = new AssignmentsService(
+      prisma,
+      {} as AiService,
+      {} as CodeRunnerService,
+    );
+
+    await expect(
+      service.resetGrade(user, 'assignment-1', 'submission-1'),
+    ).resolves.toEqual({ reset: true, id: 'submission-1' });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'submission-1' },
+      data: {
+        score: null,
+        feedback: null,
+        status: SubmissionStatus.SUBMITTED,
+        gradedAt: null,
+        gradedById: null,
+        gradingMode: null,
+      },
+    });
+  });
+});

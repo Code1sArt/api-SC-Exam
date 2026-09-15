@@ -657,6 +657,36 @@ export class AssignmentsService {
     return { graded: grades.length };
   }
 
+  async resetGrade(user: AuthUser, id: string, submissionId: string) {
+    const assignment = await this.managed(user, id);
+    const submission = await this.prisma.assignmentSubmission.findFirst({
+      where: { id: submissionId, assignmentId: assignment.id },
+      select: { id: true },
+    });
+    if (!submission) throw new NotFoundException('Submission not found');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.assignmentSubmission.update({
+        where: { id: submission.id },
+        data: {
+          score: null,
+          feedback: null,
+          status: SubmissionStatus.SUBMITTED,
+          gradedAt: null,
+          gradedById: null,
+          gradingMode: null,
+        },
+      });
+      if (assignment.isGroupWork) {
+        await tx.assignmentSubmissionMember.updateMany({
+          where: { submissionId: submission.id },
+          data: { score: null, feedback: null },
+        });
+      }
+    });
+    return { reset: true, id: submission.id };
+  }
+
   async gradeScale(user: AuthUser) {
     const rows = await this.prisma.gradeScale.findMany({
       where: { organizationId: user.organizationId },

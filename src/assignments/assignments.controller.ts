@@ -115,6 +115,16 @@ export class AssignmentsController {
     return this.assignments.grade(user, id, submissionId, dto);
   }
 
+  @Delete(':id/submissions/:submissionId/grade')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  resetGrade(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('submissionId') submissionId: string,
+  ) {
+    return this.assignments.resetGrade(user, id, submissionId);
+  }
+
   @Patch(':id/grades')
   @Roles(UserRole.ADMIN, UserRole.TEACHER)
   gradeClassroom(
