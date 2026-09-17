@@ -228,6 +228,7 @@ export class RecordsService {
           academicYear: true,
           enrollments: {
             select: {
+              studentNumber: true,
               student: {
                 select: {
                   id: true,
@@ -236,6 +237,7 @@ export class RecordsService {
                 },
               },
             },
+            orderBy: [{ studentNumber: 'asc' }, { enrolledAt: 'asc' }],
           },
           exams: {
             where: subjectId ? { subjectId } : undefined,
@@ -325,7 +327,7 @@ export class RecordsService {
             .map((subject) => ({
               subject,
               students: classroom.enrollments
-                .map(({ student }) => {
+                .map(({ student, studentNumber }) => {
                   let examScore = 0;
                   let examMaxScore = 0;
                   let examCount = 0;
@@ -410,6 +412,7 @@ export class RecordsService {
                     examCount + assignmentCount ? Math.min(100, score) : null;
                   return {
                     id: student.id,
+                    studentNumber,
                     studentCode: student.studentCode,
                     name: `${student.user.firstName} ${student.user.lastName}`,
                     examScore,
@@ -431,7 +434,20 @@ export class RecordsService {
                           )?.[0] ?? null),
                   };
                 })
-                .sort((a, b) => a.studentCode.localeCompare(b.studentCode)),
+                .sort((a, b) => {
+                  if (a.studentNumber == null && b.studentNumber == null)
+                    return a.studentCode.localeCompare(b.studentCode, 'th', {
+                      numeric: true,
+                    });
+                  if (a.studentNumber == null) return 1;
+                  if (b.studentNumber == null) return -1;
+                  return (
+                    a.studentNumber - b.studentNumber ||
+                    a.studentCode.localeCompare(b.studentCode, 'th', {
+                      numeric: true,
+                    })
+                  );
+                }),
             })),
         };
       }),
