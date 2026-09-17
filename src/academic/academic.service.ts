@@ -429,19 +429,28 @@ export class AcademicService {
         },
       });
       if (dto.classroomId !== undefined) {
-        const existingNumber = student.enrollments.find(
+        const existingEnrollment = student.enrollments.find(
           (item) => item.classroomId === dto.classroomId,
-        )?.studentNumber;
-        await tx.enrollment.deleteMany({ where: { studentId: student.id } });
-        if (dto.classroomId) {
+        );
+        if (!dto.classroomId) {
+          await tx.enrollment.deleteMany({ where: { studentId: student.id } });
+        } else if (existingEnrollment) {
+          if (dto.studentNumber !== undefined) {
+            await tx.enrollment.updateMany({
+              where: {
+                studentId: student.id,
+                classroomId: dto.classroomId,
+              },
+              data: { studentNumber: dto.studentNumber },
+            });
+          }
+        } else {
+          await tx.enrollment.deleteMany({ where: { studentId: student.id } });
           await tx.enrollment.create({
             data: {
               classroomId: dto.classroomId,
               studentId: student.id,
-              studentNumber:
-                dto.studentNumber === undefined
-                  ? existingNumber
-                  : dto.studentNumber,
+              studentNumber: dto.studentNumber,
             },
           });
         }
