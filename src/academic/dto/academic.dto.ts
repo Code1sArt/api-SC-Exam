@@ -1,9 +1,12 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import {
   IsEmail,
+  IsInt,
   IsOptional,
   IsString,
   Length,
+  Max,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -85,6 +88,13 @@ export class CreateStudentDto extends CreatePersonDto {
   @Length(1, 50)
   studentCode!: string;
 
+  @ApiPropertyOptional({ example: 1, description: 'เลขที่ภายในห้องเรียน' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9999)
+  studentNumber?: number;
+
   @IsOptional()
   @IsString()
   gradeLevel?: string;
@@ -118,6 +128,17 @@ export class UpdateStudentDto {
   @IsString()
   @Length(1, 50)
   studentCode?: string;
+
+  @ApiPropertyOptional({
+    example: 1,
+    nullable: true,
+    description: 'เลขที่ภายในห้องเรียน ใช้ null เพื่อล้างค่า',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9999)
+  studentNumber?: number | null;
 
   @IsOptional()
   @IsString()

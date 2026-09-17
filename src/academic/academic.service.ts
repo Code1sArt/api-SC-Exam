@@ -25,6 +25,7 @@ import {
 
 interface StudentSheetRow {
   student_code?: unknown;
+  student_number?: unknown;
   first_name?: unknown;
   last_name?: unknown;
   email?: unknown;
@@ -304,6 +305,15 @@ export class AcademicService {
       throw new BadRequestException('Teacher must select a managed classroom');
     if (dto.classroomId)
       await this.requireManagedClassroom(user, dto.classroomId);
+    if (dto.studentNumber !== undefined && !dto.classroomId)
+      throw new BadRequestException(
+        'A classroom is required when assigning a student number',
+      );
+    if (dto.classroomId && dto.studentNumber !== undefined)
+      await this.ensureStudentNumberAvailable(
+        dto.classroomId,
+        dto.studentNumber,
+      );
     return this.prisma.$transaction(async (tx) => {
       const created = await this.createStudentWithTx(
         tx,
@@ -312,15 +322,19 @@ export class AcademicService {
       );
       if (dto.classroomId) {
         await tx.enrollment.create({
-          data: { classroomId: dto.classroomId, studentId: created.profileId },
+          data: {
+            classroomId: dto.classroomId,
+            studentId: created.profileId,
+            studentNumber: dto.studentNumber,
+          },
         });
       }
       return created.user;
     });
   }
 
-  students(user: AuthUser, classroomId?: string) {
-    return this.prisma.studentProfile.findMany({
+  async students(user: AuthUser, classroomId?: string) {
+    const rows = await this.prisma.studentProfile.findMany({
       where: {
         organizationId: user.organizationId,
         user: { isActive: true },
@@ -352,9 +366,25 @@ export class AcademicService {
             ? { where: { classroom: { teacherId: user.sub } } }
             : {}),
           include: { classroom: { select: { id: true, name: true } } },
+          orderBy: [{ studentNumber: 'asc' }, { enrolledAt: 'asc' }],
         },
       },
       orderBy: { studentCode: 'asc' },
+    });
+    if (!classroomId) return rows;
+    return rows.sort((left, right) => {
+      const leftNumber =
+        left.enrollments.find((item) => item.classroomId === classroomId)
+          ?.studentNumber ?? Number.POSITIVE_INFINITY;
+      const rightNumber =
+        right.enrollments.find((item) => item.classroomId === classroomId)
+          ?.studentNumber ?? Number.POSITIVE_INFINITY;
+      return (
+        leftNumber - rightNumber ||
+        left.studentCode.localeCompare(right.studentCode, 'th', {
+          numeric: true,
+        })
+      );
     });
   }
 
@@ -363,6 +393,22 @@ export class AcademicService {
     if (dto.classroomId) {
       await this.requireManagedClassroom(user, dto.classroomId);
     }
+    const targetClassroomId =
+      dto.classroomId === undefined
+        ? student.enrollments.length === 1
+          ? student.enrollments[0].classroomId
+          : undefined
+        : dto.classroomId || undefined;
+    if (dto.studentNumber != null && !targetClassroomId)
+      throw new BadRequestException(
+        'A classroom is required when assigning a student number',
+      );
+    if (targetClassroomId && dto.studentNumber != null)
+      await this.ensureStudentNumberAvailable(
+        targetClassroomId,
+        dto.studentNumber,
+        student.id,
+      );
     return this.prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: student.userId },
@@ -383,12 +429,27 @@ export class AcademicService {
         },
       });
       if (dto.classroomId !== undefined) {
+        const existingNumber = student.enrollments.find(
+          (item) => item.classroomId === dto.classroomId,
+        )?.studentNumber;
         await tx.enrollment.deleteMany({ where: { studentId: student.id } });
         if (dto.classroomId) {
           await tx.enrollment.create({
-            data: { classroomId: dto.classroomId, studentId: student.id },
+            data: {
+              classroomId: dto.classroomId,
+              studentId: student.id,
+              studentNumber:
+                dto.studentNumber === undefined
+                  ? existingNumber
+                  : dto.studentNumber,
+            },
           });
         }
+      } else if (dto.studentNumber !== undefined) {
+        await tx.enrollment.updateMany({
+          where: { studentId: student.id },
+          data: { studentNumber: dto.studentNumber },
+        });
       }
       return tx.studentProfile.findUnique({
         where: { id: student.id },
@@ -404,6 +465,7 @@ export class AcademicService {
           },
           enrollments: {
             include: { classroom: { select: { id: true, name: true } } },
+            orderBy: [{ studentNumber: 'asc' }, { enrolledAt: 'asc' }],
           },
         },
       });
@@ -467,6 +529,7 @@ export class AcademicService {
         this.cellText(row.password) || randomBytes(8).toString('base64url');
       const dto = {
         studentCode: this.cellText(row.student_code),
+        studentNumber: this.optionalPositiveInteger(row.student_number),
         firstName: this.cellText(row.first_name),
         lastName: this.cellText(row.last_name),
         email: this.cellText(row.email).toLowerCase(),
@@ -484,15 +547,31 @@ export class AcademicService {
         });
         continue;
       }
+      if (dto.studentNumber === null) {
+        errors.push({
+          row: rowNumber,
+          message: 'Student number must be an integer from 1 to 9999',
+        });
+        continue;
+      }
       try {
+        if (dto.studentNumber !== undefined)
+          await this.ensureStudentNumberAvailable(
+            classroomId,
+            dto.studentNumber,
+          );
         const result = await this.prisma.$transaction(async (tx) => {
           const created = await this.createStudentWithTx(
             tx,
             user.organizationId,
-            dto,
+            { ...dto, studentNumber: dto.studentNumber ?? undefined },
           );
           await tx.enrollment.create({
-            data: { classroomId, studentId: created.profileId },
+            data: {
+              classroomId,
+              studentId: created.profileId,
+              studentNumber: dto.studentNumber,
+            },
           });
           return created;
         });
@@ -508,7 +587,7 @@ export class AcademicService {
           message:
             error instanceof Prisma.PrismaClientKnownRequestError &&
             error.code === 'P2002'
-              ? 'Email or student code already exists'
+              ? 'Email, student code, or student number already exists'
               : 'Import failed',
         });
       }
@@ -619,10 +698,35 @@ export class AcademicService {
           ? { enrollments: { some: { classroom: { teacherId: user.sub } } } }
           : {}),
       },
-      select: { id: true, userId: true },
+      select: {
+        id: true,
+        userId: true,
+        enrollments: {
+          select: { classroomId: true, studentNumber: true },
+        },
+      },
     });
     if (!student) throw new NotFoundException('Student not found');
     return student;
+  }
+
+  private async ensureStudentNumberAvailable(
+    classroomId: string,
+    studentNumber: number,
+    excludeStudentId?: string,
+  ) {
+    const duplicate = await this.prisma.enrollment.findFirst({
+      where: {
+        classroomId,
+        studentNumber,
+        ...(excludeStudentId ? { studentId: { not: excludeStudentId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (duplicate)
+      throw new ConflictException(
+        `Student number ${studentNumber} already exists in this classroom`,
+      );
   }
 
   private async ensureClassroomNameAvailable(
@@ -655,5 +759,14 @@ export class AcademicService {
     )
       return '';
     return String(value).trim();
+  }
+
+  private optionalPositiveInteger(value: unknown) {
+    const text = this.cellText(value);
+    if (!text) return undefined;
+    const parsed = Number(text);
+    return Number.isInteger(parsed) && parsed >= 1 && parsed <= 9999
+      ? parsed
+      : null;
   }
 }

@@ -193,14 +193,16 @@ model Classroom {
 }
 
 model Enrollment {
-  id          String         @id @default(cuid())
-  classroomId String
-  studentId   String
-  classroom   Classroom      @relation(fields: [classroomId], references: [id], onDelete: Cascade)
-  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  enrolledAt  DateTime       @default(now())
+  id            String         @id @default(cuid())
+  classroomId   String
+  studentId     String
+  studentNumber Int?
+  classroom     Classroom      @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  student       StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  enrolledAt    DateTime       @default(now())
 
   @@unique([classroomId, studentId])
+  @@unique([classroomId, studentNumber])
   @@index([studentId])
 }
 
